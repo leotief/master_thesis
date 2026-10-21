@@ -1,0 +1,22 @@
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Generated figures (thesis/figures/ is kept — it holds template assets)
+/figures/
+code/figures/
