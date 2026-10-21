@@ -39,20 +39,6 @@ print(f"Dataset: {len(x_train)} train / {len(x_test)} test | "
 # ── training utilities ────────────────────────────────────────────────────────
 
 def fit_classifier_pcpg(w_init, estimator, loader, epochs=20, lr=0.01, n_pg=50):
-    """Train logistic weights w via PCPG marginal predictions E[σ(wᵀx)|x_obs].
-
-    Each training point contributes its marginal prediction — no sampling of
-    x_mis required.  Gradients flow through w via the differentiable CF.
-
-    Args:
-        w_init:    initial weight vector (D,)
-        estimator: PCPGMCHermiteDiff (GMM must already be fitted)
-        loader:    DataLoader yielding (x_missing, y), NaN where missing
-        epochs, lr, n_pg: training hyperparameters
-
-    Returns:
-        Trained weight vector (D,), detached.
-    """
     w         = nn.Parameter(w_init.clone().to(estimator.model.device))
     optimizer = torch.optim.Adam([w], lr=lr)
 
@@ -89,15 +75,12 @@ def fit_classifier_pcpg(w_init, estimator, loader, epochs=20, lr=0.01, n_pg=50):
     print(f"\ndone ({time.perf_counter() - t0:.1f}s)")
     return w.detach()
 
-
 def marginal_predictions(w, x_missing_batch, estimator, n_pg):
-    """E[σ(wᵀx)|x_obs] for every row in x_missing_batch; returns numpy array."""
     preds = np.array([
         estimator(w, x_missing_batch[i], n_pg=n_pg)
         for i in range(len(x_missing_batch))
     ])
     return np.clip(preds, 1e-7, 1 - 1e-7)
-
 
 # ── step 1: GMM on missing data ───────────────────────────────────────────────
 

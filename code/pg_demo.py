@@ -57,7 +57,7 @@ def plot_pg_samples(ns, out_path="figures/pg_samples.pdf"):
 
 def plot_sigmoid_comparison(mc_ns, quad_ns,
                             out_path="figures/pg_sigmoid_comparison.pdf"):
-    x     = np.linspace(-6, 6, 300)
+    x     = np.linspace(-30, 30, 1000)
     truth = sigmoid(x)
     rng   = np.random.default_rng(0)
     n_runs = 1

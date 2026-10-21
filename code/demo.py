@@ -18,8 +18,8 @@ n_gauss_quad = 20
 n_pg_quad    = 20
 
 K = 4
-n_features = 20
-missing_rate = 0.4
+n_features = 15
+missing_rate = 0.6
 
 # ── setup ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ def variance_analysis():
             results[name]["stds"].append(np.std(vals))
 
     plot_convergence(results, convergence_budgets,
-                     filename=f'convergence{int(missing_rate * n_features)}_{n_features}features.png',
+                     filename=f'convergence_{n_features}.png',
                      title=rf'Estimator convergence ({int(missing_rate * n_features)}/{n_features} features, mean $\pm$ 1 std)')
     
     n_reps = 1000
@@ -134,11 +134,11 @@ def variance_analysis():
     print_variance_components(sigma2_mc, sigma2_B, sigma2_A, pcpg11_vals)
     plot_variance_analysis(sigma2_mc, sigma2_B, sigma2_A, convergence_budgets, results,
                            n_gauss_quad=n_gauss_quad, pcpg_ratio=pcpg_ratio,
-                           filename=f'variance{int(missing_rate * n_features)}_{n_features}features.png',
+                           filename=f'variance_{n_features}.png',
                            title=f'Formula vs measured variance  ({int(missing_rate * n_features)}/{n_features} features)')
 
 # ── run ───────────────────────────────────────────────────────────────────────
 
-# eval_estimators()
+eval_estimators()
 # allocation_analysis()
 variance_analysis()

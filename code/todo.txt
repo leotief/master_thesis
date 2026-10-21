@@ -1,5 +1,11 @@
 TODOs:
 
-pcpg in log domain maybe -> LLM thinks this doesnt do anything useful
 why is monte carlo not enough, what is the upside of our approach? -> I didn't find much for this just that it
 could be hard or not possible to sample from certain distr
+
+how to bound the bias of the deterministic variant
+look at nnls why the sigmoid approx error goes to high 
+how does sigmoid get composed 
+maybe other quadrature variants (2 obvious ones)
+han zhao - semantic bottleneck
+more y / classes
