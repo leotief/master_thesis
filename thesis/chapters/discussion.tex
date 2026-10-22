@@ -112,11 +112,30 @@ For large $N$ the second term dominates, so PCPG-MC will have higher variance
 than MC whenever $\sigma^2_B > 0$.
 
 \paragraph{Why $\sigma^2_A$ can be large.}
-Because $|h(\gamma,u)| = e^{1/(8\gamma)}|\phi|$, individual samples explode when $\gamma$
-is small.  The distribution $\PG(1,0)$ places non-negligible mass near zero, so the
-inner variance $\sigma^2_{A,\gamma}$ diverges as $\gamma \to 0$: formally $\sigma^2_A = \infty$.
-In practice the contribution from very small $\gamma$ is finite but can be large,
-requiring a moderately large $L$ to suppress the inner noise.
+The problem comes from completing the square in Trick~2, which introduced the
+factors $e^{1/(8\gamma)}$ and $e^{iu/(2\gamma)}$ into the integrand. Both depend on
+$1/\gamma$ and become extreme for small $\gamma$.
+
+To see what happens, fix $z$. The inner expectation is then known exactly from the
+HS identity,
+\[
+  \E_{u \sim \mathcal{N}(0,\gamma)}\!\left[ e^{-i\left(z - \frac{1}{2\gamma}\right)u} \right]
+  = \exp\!\left( -\tfrac{1}{2}\gamma \left( z - \tfrac{1}{2\gamma} \right)^2 \right)
+  \approx e^{-1/(8\gamma)} \quad \text{for small } \gamma,
+\]
+which is tiny. Multiplied by $e^{1/(8\gamma)}$ it gives a value of order one. So
+the inner average has to produce a tiny number from terms of modulus one that
+almost cancel, and every bit of noise in that average is amplified by
+$e^{1/(8\gamma)}$. For $\gamma = 0.01$ this factor is already about
+$2.7 \cdot 10^{5}$.
+
+In terms of variance, a single inner sample has modulus $e^{1/(8\gamma)}$, so its
+second moment is $e^{1/(4\gamma)}$. Near zero the density of $\PG(1,0)$ decays
+only like $e^{-1/(8\gamma)}$, which is not fast enough to compensate, so averaged
+over $\gamma$ the second moment is infinite: formally $\sigma^2_A = \infty$.
+Small values of $\gamma$ are rare, which is why the estimator still works in
+practice, but when they occur they produce extreme samples, and a moderately
+large $L$ is needed to suppress the inner noise.
 
 \paragraph{Optimal budget split.}
 Looking at the variance formula from Step~3,
@@ -230,6 +249,21 @@ budget whenever $\sigma^2_A$ is non-negligible, because replacing the inner MC
 with quadrature costs nothing in outer samples and eliminates the dominant noise
 source.
 
+The problem does not disappear completely, however; it turns from variance into
+quadrature error. With $u = \sqrt{2\gamma}\,t$ the inner integrand contains the
+factor $\exp\!\left(-i\left(z - \tfrac{1}{2\gamma}\right)\sqrt{2\gamma}\,t\right)$,
+which oscillates with frequency $\left|z - \tfrac{1}{2\gamma}\right|\sqrt{2\gamma}$
+in the Hermite variable $t$. This frequency is large when $\gamma$ is small, but
+also when $|w^T x|$ is large. A fixed number of nodes cannot resolve fast
+oscillations, and the exact inner value
+$\exp(-\tfrac{1}{2}\gamma(z - \tfrac{1}{2\gamma})^2)$ it should produce is then
+tiny, so the rule has to sum terms of modulus one to almost zero. Any error in
+that sum is multiplied by $e^{1/(8\gamma)}$, which also amplifies rounding errors
+(in single precision, with relative accuracy $\approx 10^{-7}$, only about two
+digits are left at $\gamma = 0.01$). The CF damping helps when many features are
+missing, because it suppresses large $|u|$; with few missing features and a
+confident prediction, the inner quadrature error can become significant.
+
 \subsection{PCPG-Quad Estimator}
 
 Replacing both integrals with quadrature (Golub--Welsch for the outer PG
@@ -242,6 +276,11 @@ output is bounded since the PG quadrature nodes $\gamma_j$ are fixed
 positive numbers --- the factor $e^{1/(8\gamma_j)}$ is a known finite
 constant for each node.
 The error is purely from quadrature approximation (bias), not variance.
+The amplification by $e^{1/(8\gamma)}$ is mild here, because the smallest
+Golub--Welsch node is not close to zero ($\gamma_{\min} \approx 0.046$ for 19
+nodes, giving $e^{1/(8\gamma_{\min})} \approx 15$). The oscillation problem of
+the inner Gauss--Hermite rule for large $|w^T x|$ remains, since the inner rule is
+the same as in PCPG-GH.
 
 \section{Bias Analysis}
 
@@ -273,6 +312,12 @@ functions of $\gamma$ the error again decays rapidly with $M$. The maximum
 reliable order is $M \leq 19$ (limited by numerical precision in the moment
 computation). At $M = 19$ and $N_H \geq 20$, both errors are numerically
 negligible and the output closely matches the unbiased MC ground truth.
+This holds for moderate $|w^T x|$. For large positive $w^T x$ the outer error is
+amplified by $e^{z/2}$, which the sign flip from Section~\ref{subsec:sign-flip}
+removes; with the flip, the outer rule fitted directly to the sigmoid
+(Section~\ref{subsubsec:sigmoid-fit}) is more accurate than Golub--Welsch with
+fewer nodes. The inner Gauss--Hermite error for large $|w^T x|$ is not affected
+by the flip.
 
 \section{Comparison}
 \label{sec:comparison}
@@ -450,6 +495,48 @@ unaffected, since $D_m$ stays bounded.
 The relative advantage of PCPG over MC is therefore tied to the missing ratio,
 and is strongest in the high-missing-data regime where accurate marginalisation
 matters most.
+
+\section{Special Case: Closed Form for GMMs}
+\label{sec:gmm-closed-form}
+
+For a fixed $\gamma$, the integral over $u$ together with the expectation over
+$\xm$ only undoes the HS step: they compute
+\[
+  g(\gamma) := \E_{p(\xm \mid \xo)}\!\left[ \exp\!\left( \tfrac{1}{2}z - \tfrac{1}{2}\gamma z^2 \right) \right],
+  \qquad
+  p(y \mid \xo) = \tfrac{1}{2}\,\E_{\gamma \sim \PG(1,0)}\!\left[ g(\gamma) \right].
+\]
+HS is needed because, for a general density, $g(\gamma)$ cannot be computed
+directly. For a GMM with diagonal covariances it can. Within component $k$,
+$z = w_o^T \xo + w_m^T \xm$ is a constant plus a weighted sum of independent
+Gaussians, so
+\[
+  z \mid k \sim \mathcal{N}(m_k, v_k), \qquad
+  m_k = w_o^T \xo + w_m^T \mu_k^m, \qquad
+  v_k = \sum_{d \in \mathrm{mis}} w_d^2\,\sigma_{k,d}^2 .
+\]
+The expectation of $\exp(\tfrac{1}{2}z - \tfrac{1}{2}\gamma z^2)$ under a Gaussian
+is a Gaussian integral (both exponents are quadratic in $z$), and completing the
+square in $z$ gives
+\[
+  g(\gamma) = \sum_{k=1}^{K} \tilde{\pi}_k(\xo)\,
+  \frac{1}{\sqrt{1 + \gamma v_k}}
+  \exp\!\left( \frac{m_k + \tfrac{1}{4} v_k - \gamma m_k^2}{2\,(1 + \gamma v_k)} \right).
+\]
+For $v_k = 0$ (nothing missing) this reduces to the PG identity itself, as it
+should. Only the outer integral over $\gamma$ remains, and it can be handled with
+MC or the Golub--Welsch rule as before. The integrand is real, positive and
+bounded, so the small-$\gamma$ problems discussed above do not occur, and each
+value of $\gamma$ costs $K$ operations instead of $K \cdot n_H$.
+
+This does not carry over to general probabilistic circuits. A PC with Gaussian
+leaves is also a mixture of Gaussians, but with exponentially many components
+(induced trees) that cannot be enumerated. The circuit can only compute
+expectations of functions that factorise over the features, and $g(\gamma)$ does
+not, because of the $\gamma z^2$ term. After the HS step the exponent is linear in
+$z$ and factorises, which is exactly why PCPG needs the characteristic function.
+For GMMs the closed form is therefore mainly useful as an exact reference: it
+isolates the error introduced by the inner quadrature of PCPG.
 
 \section{Related Work}
 
