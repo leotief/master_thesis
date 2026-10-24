@@ -1,341 +1,307 @@
-# training the classifier on incomplete data, step by step, as two figures in
-# the style of the pcpg one: with pcpg (figures/train/pcpg.pdf) and with mc
-# (figures/train/mc.pdf), the same steps, so they can be read side by side:
-#   goal     w is fit to the incomplete training points: the prediction of a
-#            point is the area under sigmoid(z) x p(z | x_obs), and the loss
-#            is -log of the area of its label
-#   step 1   the method estimates the prediction of every training point, and
-#            the same point asked again
-#   step 2   the loss of that estimate: pcpg gives the exact loss, the mc loss
-#            is random and too high on average (jensen), by about 1 / S
-#   step 3   the training objective along one direction of w, w = t w*, and
-#            its slope, which is what the gradient follows
-#   step 4   training: how far the objective is from its optimum after every
-#            epoch, and the path of w, along w* and away from it
-#
-# the setup of train.py: the gmm is fit on the incomplete training data
-# (MISSING_RATE of every point missing, at random) and frozen, then w is
-# trained by adam on the marginal likelihood, -log p(y | x_obs) with
-# p(y=1 | x_obs) = E[sigma(w^T x) | x_obs], and the l2 penalty of sklearn. the exact
-# expectation (gauss-hermite per component of the mixture of z) is the
-# target, w* its optimum.
+# how a logistic regression is trained when some training points have a
+# missing feature, step by step, on a 2d toy problem where everything can be
+# drawn: the points, the decision boundary, and w itself (a point in a plane).
+# one figure, figures/train/step_by_step.pdf, with pcpg and mc side by side
+# where they differ:
+#   setup   the training points, the incomplete ones as lines (the missing
+#           coordinate could be anywhere on them), and the density model
+#   step 1  an incomplete point is a line of possible points: its prediction is
+#           the average of sigmoid(w^T x) along the line, weighted by
+#           p(x_mis | x_obs). mean imputation takes one point instead
+#   step 2  two ways to compute that average: pcpg replaces sigma by a sum of
+#           bells and averages every bell exactly, mc averages sigma at a few
+#           random points on the line
+#   step 3  training changes w: sigma along the line changes, and with it the
+#           prediction, smoothly for pcpg, noisily for mc
+#   step 4  from predictions to the loss: the loss of the point, and summed over
+#           all points, mc's loss is too high on average (jensen), more so for a
+#           longer w
+#   step 5  training walks downhill: the paths of w over the loss, and the loss
+#           during training, mc stops short
+#   step 6  where training ends: the boundaries in the data, and how sharp the
+#           prediction is across them
+# the estimators, the density and the loss are the ones of train.py, on two
+# features. mc gets MC_FEW samples, so what it does is visible, and steps 3 and
+# 4 also show it with as many samples as pcpg has nodes.
 # the plotting is in utils/plots.py
 
 import os
-import random
 import sys
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
 
-# pcpg.py is one directory up
+# experiment_utils.py and pcpg.py are one directory up
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from experiment_utils import optimum
 from pcpg import PCPG
-from utils.baselines import MCBaseline, MixtureGaussHermite
-from utils.data import DataManager
-from utils.gmm import GMM
-from utils.plots import plot_train_step_by_step
+from side.utils.baselines import MCBaseline, MixtureGaussHermite
+from side.utils.gmm import GMM
+from side.utils.plots import plot_training_step_by_step
 
 OUT_DIR = "figures/train"
-os.makedirs(OUT_DIR, exist_ok=True)
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-# setup, as in train.py
-SEED         = 42
-N_FEATURES   = 15
-K            = 4
-MISSING_RATE = 0.6
-C            = 1.0
-EPS          = 1e-6
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+SEED = 0
 
-# pcpg nodes and mc samples of the figures. mc with few samples, where its
-# bias is clearly visible, both figures for the same kind of training
+# the toy data: two features, two clusters per class, and the fraction of the
+# points that miss one of their two features (which one at random)
+N_POINTS       = 600
+MISSING_POINTS = 0.7
+K              = 4
+
+# pcpg's nodes, mc with few samples and with as many as pcpg has nodes
 N_OUTER, N_INNER = 10, 32
-MC_SAMPLES       = 4
+MC_FEW           = 4
+MC_SAME          = N_OUTER * N_INNER
 EXACT_NODES      = 64
 
-# step 1: predictions of N_SCATTER training points, the followed one asked
-# N_REPEATS times. step 2: the mc bias of the loss at MC_BUDGETS, pcpg at
-# QUAD_NODES. step 3: the objective at T (w = t w*) on N_SLICE training
-# points, mc N_SLICE_RUNS times. step 4: training as in train.py, mc N_RUNS times
-N_SCATTER    = 400
-N_REPEATS    = 2000
-MC_BUDGETS   = [1, 2, 4, 8, 16, 32, 64]
-QUAD_NODES   = [(2, 4), (2, 8), (3, 12), (4, 16), (6, 24), (8, 32), (10, 40), (14, 56)]
-T            = np.linspace(0, 2, 41)
-N_SLICE      = 2000
-N_SLICE_RUNS = 4
-EPOCHS       = 30
-BATCH        = 256
-LR           = 0.05
-N_RUNS       = 3
+# the l2 penalty of sklearn and plain adam on all points at once
+C      = 1.0
+EPOCHS = 300
+LR     = 0.05
+EPS    = 1e-6
 
-Z = np.linspace(-12, 12, 1200)
+# the epochs whose boundaries step 4 shows, and the grid of the loss over w
+SHOW_EPOCHS = [0, 5, 15, 40, 300]
+GRID        = 61
+
+device = torch.device("cpu")
 
 # ── setup ─────────────────────────────────────────────────────────────────────
 
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
-
-dm = DataManager("sk_class", samples=10_000, features=N_FEATURES, test_size=0.2, random_state=SEED)
-x_train, _, y_train, _ = dm.get_data()
+x_np, y_np = make_classification(n_samples=N_POINTS, n_features=2, n_informative=2, n_redundant=0,
+                                 n_clusters_per_class=2, class_sep=1.0, random_state=SEED)
+x_np = (x_np - x_np.mean(axis=0)).astype(np.float32)
 rng = np.random.default_rng(SEED)
-x_mis = x_train.copy()
-x_mis[rng.random(x_mis.shape) < MISSING_RATE] = np.nan
-mean = np.nanmean(x_mis, axis=0)
+x_missing_np = x_np.copy()
+incomplete = rng.random(N_POINTS) < MISSING_POINTS
+x_missing_np[np.flatnonzero(incomplete), rng.integers(0, 2, incomplete.sum())] = np.nan
 
-X = torch.tensor(x_mis, device=device)
-Y = torch.tensor(y_train, dtype=torch.float32, device=device)
-N = len(Y)
-loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X), batch_size=64, shuffle=True)
-first = torch.tensor(np.where(np.isnan(x_mis[:K]), mean, x_mis[:K]), device=device)
-px = GMM(device, K=K, means_init=first, n_features=N_FEATURES).to(device)
-px.fit(loader)
-for p in px.parameters():
-    p.requires_grad_(False)
+x_missing = torch.tensor(x_missing_np)
+y = torch.tensor(y_np, dtype=torch.float32)
 
-exact = MixtureGaussHermite(px, n_nodes=EXACT_NODES)
-pcpg = PCPG(px, n_outer=N_OUTER, n_inner=N_INNER)
-mc = MCBaseline(px, n_samples=MC_SAMPLES)
-PREDICT = dict(exact=exact.differentiable, pcpg=pcpg.differentiable, mc=mc.differentiable)
+# the density model, fit on the incomplete points
+torch.manual_seed(SEED)
+first = torch.where(torch.isnan(x_missing[:K]), x_missing.nanmean(dim=0), x_missing[:K])
+px = GMM(device, K=K, means_init=first, n_features=2)
+px.fit(torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x_missing), batch_size=64, shuffle=True))
+for parameter in px.parameters():
+    parameter.requires_grad_(False)
 
-# ── training ──────────────────────────────────────────────────────────────────
+pcpg    = PCPG(px, n_outer=N_OUTER, n_inner=N_INNER)
+mc_few  = MCBaseline(px, n_samples=MC_FEW)
+mc_same = MCBaseline(px, n_samples=MC_SAME)
+exact   = MixtureGaussHermite(px, n_nodes=EXACT_NODES)
 
-# mean binary cross-entropy plus the l2 penalty of sklearn, scaled to one point
-def objective(predict, w, x, y):
+
+# the loss of train.py
+def objective(predict, w, x, y, n_train):
     p = predict(w, x).to(y.dtype).clamp(EPS, 1 - EPS)
-    return F.binary_cross_entropy(p, y) + w.square().sum() / (2 * C * N)
+    return F.binary_cross_entropy(p, y) + w.square().sum() / (2 * C * n_train)
 
-def objective_value(w, predict=exact.differentiable, x=X, y=Y):
+
+def exact_objective(w):
     with torch.no_grad():
-        return float(objective(predict, w, x, y))
+        return objective(exact.differentiable, w, x_missing, y, N_POINTS).item()
 
-# w* by full batch l-bfgs on the exact objective
-def optimum():
-    w = torch.zeros(N_FEATURES, device=device, requires_grad=True)
-    optimizer = torch.optim.LBFGS([w], max_iter=1000, tolerance_grad=1e-10, tolerance_change=1e-14,
-                                  line_search_fn="strong_wolfe")
-    def closure():
-        optimizer.zero_grad()
-        loss = objective(exact.differentiable, w, X, Y)
-        loss.backward()
-        return loss
-    optimizer.step(closure)
-    return w.detach()
 
-W_STAR = optimum()
-J_STAR = objective_value(W_STAR)
+# the optimum of the exact loss, and the two logistic regressions on complete
+# points: on all complete points (an oracle), and with the gaps filled by the means
+w_star = optimum(objective, exact.differentiable, x_missing, y, N_POINTS, device)
+x_filled = torch.where(torch.isnan(x_missing), x_missing.nanmean(dim=0), x_missing)
+w_complete = LogisticRegression(C=C, fit_intercept=False).fit(x_np, y_np).coef_[0]
+w_mean = LogisticRegression(C=C, fit_intercept=False).fit(x_filled.numpy(), y_np).coef_[0]
 
-# adam on minibatches from w = 0, as in train.py. the excess objective and w
-# at the start and after every epoch
+
+# plain adam on all points from w = 0, w after every epoch
 def train(predict, seed):
-    torch.manual_seed(SEED + seed)
-    w = torch.zeros(N_FEATURES, device=device, requires_grad=True)
+    torch.manual_seed(seed)
+    w = torch.zeros(2, requires_grad=True)
     optimizer = torch.optim.Adam([w], lr=LR)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, EPOCHS * -(-N // BATCH))
-    excesses, path = [objective_value(w.detach()) - J_STAR], [w.detach().cpu().numpy()]
-    for _ in range(EPOCHS):
-        for batch in torch.randperm(N, device=device).split(BATCH):
-            loss = objective(predict, w, X[batch], Y[batch])
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
-        excesses.append(objective_value(w.detach()) - J_STAR)
-        path.append(w.detach().cpu().numpy())
-    return np.array(excesses), np.array(path)
-
-# ── the pieces ────────────────────────────────────────────────────────────────
-
-# the followed training point: one with label 1, at least 60 % missing and an
-# uncertain prediction (between 0.3 and 0.8), the one whose sigmoid(z) varies
-# most over p(z | x_obs), so the spread of mc shows
-def followed_point():
-    with torch.no_grad():
-        mix, m, v = px.z_moments(W_STAR, X)
-        # E[sigmoid(z)] and E[sigmoid(z)^2] with gauss-hermite per component
-        nodes, weights = (torch.tensor(a, dtype=torch.float32, device=device)
-                          for a in np.polynomial.hermite.hermgauss(EXACT_NODES))
-        s = torch.sigmoid(m[..., None] + torch.sqrt(2 * v)[..., None] * nodes)
-        p = ((mix * (s @ weights)).sum(-1) / np.sqrt(np.pi)).cpu().numpy()
-        var = ((mix * (s**2 @ weights)).sum(-1) / np.sqrt(np.pi)).cpu().numpy() - p**2
-    missing = np.isnan(x_mis).mean(axis=1)
-    ok = (y_train == 1) & (missing >= 0.6) & (p > 0.3) & (p < 0.8)
-    return int(np.flatnonzero(ok)[np.argmax(var[ok])])
-
-# density of z = w^T x given x_obs for point n, on Z
-def pz(w, n):
-    with torch.no_grad():
-        mix, m, v = (t.double().cpu().numpy() for t in px.z_moments(w, X[n]))
-    return (mix[:, None] * np.exp(-(Z - m[:, None])**2 / (2 * v[:, None])) / np.sqrt(2 * np.pi * v[:, None])).sum(0)
-
-# repeated estimates of the prediction of point n, (repeats,)
-def repeats(name, n):
-    with torch.no_grad():
-        if name == "pcpg":
-            return np.full(N_REPEATS, float(pcpg(W_STAR, X[n])))
-        return mc(W_STAR, X[n].expand(N_REPEATS, -1))
-
-# step 2: the error of the expected loss -log p for point n, against the
-# budget. for mc the bias E[-log p_hat] + log p (the mean over N_REPEATS
-# estimates), for pcpg the error of its one value
-def loss_errors(name, n, p_exact):
-    with torch.no_grad():
-        if name == "pcpg":
-            return ([o * i for o, i in QUAD_NODES],
-                    [abs(-np.log(float(pcpg(W_STAR, X[n], n_outer=o, n_inner=i))) + np.log(p_exact))
-                     for o, i in QUAD_NODES])
-        return (MC_BUDGETS,
-                [np.mean(-np.log(np.clip(mc(W_STAR, X[n].expand(N_REPEATS, -1), n_samples=s), EPS, 1)))
-                 + np.log(p_exact) for s in MC_BUDGETS])
-
-# step 3: the objective and its slope d/dt along w = t w*, on the first
-# N_SLICE training points, (len(T),)
-def along_slice(predict):
-    values, slopes = [], []
-    for t in T:
-        t = torch.tensor(float(t), device=device, requires_grad=True)
-        loss = objective(predict, t * W_STAR, X[:N_SLICE], Y[:N_SLICE])
+    path = [w.detach().clone()]
+    for epoch in range(EPOCHS):
+        optimizer.zero_grad()
+        loss = objective(predict, w, x_missing, y, N_POINTS)
         loss.backward()
-        values.append(float(loss.detach()))
-        slopes.append(float(t.grad))
-    return np.array(values), np.array(slopes)
+        optimizer.step()
+        path.append(w.detach().clone())
+    return torch.stack(path).numpy()
 
-# a path of w (steps, D) in two coordinates, in units of ||w*||: along the
-# direction of w* (w* at 1) and the distance from that line. the objective is
-# nearly flat in some directions (make_classification has redundant features),
-# so single weights can stay far from w* at an objective close to the optimum
-def project(path):
-    w_star = W_STAR.cpu().numpy()
-    norm = np.linalg.norm(w_star)
-    along = path @ w_star / norm
-    off = np.linalg.norm(path - np.outer(along, w_star / norm), axis=1)
-    return np.stack([along, off], axis=1) / norm
 
-def pieces():
-    n = followed_point()
+# ── the followed point: x2 missing, its line crosses two clusters ─────────────
+
+lines = np.flatnonzero(np.isnan(x_missing_np[:, 1]))
+with torch.no_grad():
+    weights = px._component_weights(x_missing[lines]).numpy()
+    prediction = exact(w_star, x_missing[lines])
+means = px.means.numpy()[:, 1]
+by_weight = np.argsort(-weights, axis=1)
+second = np.take_along_axis(weights, by_weight[:, 1:2], axis=1)[:, 0]
+spread = np.abs(means[by_weight[:, 0]] - means[by_weight[:, 1]])
+# the point whose prediction changes clearly from w = 0 (0.5) to w*, whose
+# line crosses two clusters, and where mean imputation differs most from the
+# average along the line
+filled = x_missing[lines].clone()
+filled[:, 1] = x_missing[:, 1].nanmean()
+mean_prediction = torch.sigmoid(filled @ w_star).numpy()
+usable = np.abs(prediction - 0.5) > 0.25
+point = int(lines[np.argmax(np.where(usable, np.abs(prediction - mean_prediction) * second, -1))])
+x_point = x_missing[point]
+x1 = float(x_point[0])
+
+# p(x2 | x1) along the line, and sigmoid(w* . x) on it
+X2 = np.linspace(x_np[:, 1].min() - 1, x_np[:, 1].max() + 1, 600)
+with torch.no_grad():
+    weight = px._component_weights(x_point).numpy()
+stds = np.sqrt(np.exp(px.log_vars.numpy()[:, 1]) + 1e-6)
+line_density = (weight[:, None] * np.exp(-(X2 - means[:, None])**2 / (2 * stds[:, None]**2))
+                / np.sqrt(2 * np.pi * stds[:, None]**2)).sum(axis=0)
+w_np = w_star.numpy()
+line_sigmoid = 1 / (1 + np.exp(-(w_np[0] * x1 + w_np[1] * X2)))
+with torch.no_grad():
+    answer = float(exact(w_star, x_point))
+mean_x2 = float(x_filled[point, 1])
+
+# ── steps 2 to 4: the followed point along its line ──────────────────────────
+
+# z = w*^T x on the line, and pcpg's sigma along it: the sum of the bells with
+# the largest weights. with the sign flip (z mostly positive) pcpg computes
+# 1 - the sum of the bells of -z
+z_line = w_np[0] * x1 + w_np[1] * X2
+gammas, rhos = (a.double().numpy() for a in pcpg._outer_nodes(N_OUTER))
+by_rho = np.argsort(-rhos)
+with torch.no_grad():
+    flip = float(px.z_mean(w_star, x_point)) > 0
+    answer_pcpg = float(pcpg(w_star, x_point))
+BELL_KS = [1, 2, 4, N_OUTER]
+
+
+def bell_sum(k):
+    zz = -z_line if flip else z_line
+    total = (0.5 * rhos[by_rho[:k], None] * np.exp(zz / 2 - np.outer(gammas[by_rho[:k]], zz**2) / 2)).sum(axis=0)
+    return 1 - total if flip else total
+
+
+# mc's random positions on the line
+torch.manual_seed(SEED)
+with torch.no_grad():
+    samples = mc_few.model.sample(MC_FEW, x_obs=x_point).numpy()[:, 1]
+
+# the point's prediction and loss along w = t w*: t = 0 is w = 0, t = 1 the
+# optimum w*
+T = np.linspace(0, 1.6, 81)
+SHOW_T = [0.25, 0.5, 1.0]
+label = int(y_np[point])
+
+
+def of_label(p):
+    return p if label == 1 else 1 - p
+
+
+def along_point(estimator):
     with torch.no_grad():
-        p_exact = float(exact(W_STAR, X[n]))
-        scatter_exact = exact(W_STAR, X[:N_SCATTER])
-    slice_exact = along_slice(exact.differentiable)
-    excess_exact, path_exact = train(exact.differentiable, 0)
-    common = dict(z=Z, pz=pz(W_STAR, n), answer=p_exact, n=n, n_missing=int(np.isnan(x_mis[n]).sum()),
-                  scatter_exact=scatter_exact, t=T, slice_exact=slice_exact, excess_exact=excess_exact,
-                  path_exact=project(path_exact), j_star=J_STAR)
+        return np.array([float(estimator(torch.tensor(t * w_np, dtype=torch.float32), x_point)) for t in T])
 
-    out = {}
-    for name in ("pcpg", "mc"):
+
+# mc's loss of the point on average, over 400 draws of MC_FEW samples
+def mc_point_loss(t):
+    torch.manual_seed(SEED)
+    with torch.no_grad():
+        fills = px.sample(MC_FEW * 400, x_obs=x_point)
+        p = torch.sigmoid(fills @ torch.tensor(t * w_np, dtype=torch.float32)).view(400, MC_FEW).mean(dim=-1)
+        return float(-torch.log(of_label(p).clamp(EPS, 1)).mean())
+
+
+norm_star = float(w_star.norm())
+
+
+# ── step 3: the loss over w ───────────────────────────────────────────────────
+
+# a square around w = 0 and w*
+centre = w_np / 2
+reach = 0.85 * norm_star
+W1 = np.linspace(centre[0] - reach, centre[0] + reach, GRID)
+W2 = np.linspace(centre[1] - reach, centre[1] + reach, GRID)
+j_star = exact_objective(w_star)
+
+
+def landscape(value):
+    return np.array([[value(torch.tensor([a, b], dtype=torch.float32)) for a in W1] for b in W2])
+
+
+def loss_with(predict):
+    def value(w):
         with torch.no_grad():
-            scatter = (pcpg if name == "pcpg" else mc)(W_STAR, X[:N_SCATTER])
-        # pcpg is deterministic, one run is all runs
-        slices = [along_slice(PREDICT[name]) for _ in range(1 if name == "pcpg" else N_SLICE_RUNS)]
-        runs = [train(PREDICT[name], seed) for seed in range(1 if name == "pcpg" else N_RUNS)]
-        out[name] = dict(common, method=name, scatter=scatter, repeats=repeats(name, n),
-                         loss_errors=loss_errors(name, n, p_exact), slices=slices,
-                         excesses=[r[0] for r in runs], paths=[project(r[1]) for r in runs],
-                         budget=N_OUTER * N_INNER if name == "pcpg" else MC_SAMPLES)
-    return out
+            return objective(predict, w, x_missing, y, N_POINTS).item() - j_star
+    return value
 
-# ── the figures ───────────────────────────────────────────────────────────────
 
-# the explanations below the panels, typeset with latex, the math without
-# spaces so that wrapping never splits it. <...> are filled in below. the goal
-# is the same in both figures
-GOAL = dict(
-    heading=r"Fit $w$ on incomplete training points",
-    title=r"$\displaystyle{}p(y=1\mid{}x^o)=\mathbb{E}_{p(z\mid{}x^o)}\big[\sigma(z)\big]=\int\sigma(z)\,p(z)\,dz$",
-    text=r"In training, also the training points have missing features (here <rate> of them, at random). "
-         r"The density model is fit first, its likelihood leaves the missing features out exactly. Then "
-         r"$w$ is fit to the prediction that is made at test time: for a point with observed $x^o$ it is "
-         r"the yellow area under $\sigma(z)\times{}p(z\mid{}x^o)$, here for a training point with "
-         r"<missing> of 15 features missing and label $y=1$. Its loss is $-\log$ of the area of its label, "
-         r"and training minimises the mean loss over all points, "
-         r"$-\frac{1}{N}\sum_n\log{}p(y_n\mid{}x_n^o)$. So the area is needed for every point in every "
-         r"step, and the gradient of its log.",
-)
+# what mc's loss is on average: its loss with MC_FEW samples, averaged over
+# REPEATS draws of the samples. the same draws at every w, so that the
+# landscape is smooth
+REPEATS = 100
 
-TEXTS = dict(
-    pcpg=dict(
-        h1="PCPG computes the prediction of every training point",
-        h2="The loss of the estimate is the exact loss",
-        h3="The objective and its slope are the exact ones",
-        h4="Training follows the exact objective",
-        step1=r"PCPG computes the area for every training point from the model's characteristic function "
-              r"(<budget> nodes per point). Every dot is one of <scatter> training points: its PCPG "
-              r"estimate against the exact value. They lie on the diagonal.",
-        repeat=r"The same point asked <repeats> times gives the same answer every time: PCPG is "
-               r"deterministic, a fixed function of $w$.",
-        loss=r"The loss is $-\log$ of the prediction of the label. As the prediction is exact up to the "
-             r"quadrature error, so is the loss: the dot sits on the curve, at the exact loss.",
-        loss_error=r"The error of the loss falls quickly with the number of nodes "
-                   r"$n_{\mathrm{outer}}\times{}n_{\mathrm{inner}}$, it is a deterministic error that does "
-                   r"not average out, but it is small.",
-        slice=r"The mean loss over <n_slice> training points along one direction of $w$, $w=t\,w^*$ "
-              r"($w^*$ the optimum of the exact objective, at $t=1$). Around the optimum the PCPG "
-              r"objective is the exact one (in the yellow band), a smooth curve with its minimum at $t=1$. "
-              r"For a much larger $w$ the scores $z$ get larger, the fixed nodes too coarse, and it drifts "
-              r"above.",
-        slope=r"Its slope, which the gradient follows, is the exact one up to there, and the same at "
-              r"every call, so even full batch methods like L-BFGS can be used. Training starts at $w=0$ "
-              r"and stays in the range where the nodes are good enough.",
-        curve=r"Training with Adam on minibatches as in the experiments: the objective minus its optimum "
-              r"after every epoch. PCPG trains like the exact objective (yellow band) and ends at the "
-              r"same objective.",
-        path=r"The path of $w$ from $w=0$, along the direction of $w^*$ and away from it (in units of "
-             r"$\|w^*\|$): the same as with the exact objective. Both stop a little short of $w^*$ (star), "
-             r"where the objective is nearly flat.",
-    ),
-    mc=dict(
-        h1="MC estimates every prediction from random fill-ins",
-        h2="The loss of a random estimate is too high on average",
-        h3="The objective is noisy and too high, its minimum moves",
-        h4=r"Training ends short of the optimum $w^*$",
-        step1=r"MC estimates the area for every training point by the average of $\sigma(z_i)$ over "
-              r"<budget> fill-ins of the missing features, drawn from the model. Every dot is one of "
-              r"<scatter> training points: its MC estimate against the exact value. They scatter around "
-              r"the diagonal.",
-        repeat=r"The same point asked <repeats> times gives a different answer every time: a histogram "
-               r"around the exact value (yellow), its mean is right, single estimates are not.",
-        loss=r"The loss is $-\log$ of the prediction of the label. The curve bends upwards, so the losses "
-             r"of the random estimates (dots) are too high on average (Jensen): their mean <mean_loss> is "
-             r"above the exact loss <exact_loss>.",
-        loss_error=r"The bias of the loss, mean of $-\log\hat{p}$ minus $-\log{}p$, falls like $1/S$ with "
-                   r"the number of samples $S$. It is largest where the prediction varies most over the "
-                   r"missing features, so it punishes $w$ for relying on them.",
-        slice=r"The mean loss over <n_slice> training points along one direction of $w$, $w=t\,w^*$ "
-              r"($w^*$ the optimum of the exact objective, at $t=1$). Every MC run (new fill-ins at every "
-              r"$t$) is noisy and above the exact objective (yellow band), more so for larger $w$, so its "
-              r"minimum moves to a smaller $w$.",
-        slope=r"Its slope is noisy and too high, so every step is pushed towards $w=0$: the bias acts like an "
-              r"extra penalty that shrinks $w$. With more samples it shrinks like $1/S$.",
-        curve=r"Training with Adam on minibatches as in the experiments, new fill-ins in every step: the "
-              r"objective minus its optimum after every epoch, <runs> runs. They stop well above the "
-              r"exact objective (yellow band), at the optimum of the biased MC objective.",
-        path=r"The path of $w$ from $w=0$, along the direction of $w^*$ and away from it (in units of "
-             r"$\|w^*\|$): every run is different, and all of them stop far short of $w^*$ (star) and "
-             r"of the exact path (yellow), at a smaller $w$.",
-    ),
-)
 
-def fill(text, d):
-    values = {"<rate>": rf"{round(100 * MISSING_RATE)}\%", "<missing>": str(d["n_missing"]),
-              "<budget>": str(d["budget"]), "<scatter>": str(N_SCATTER), "<repeats>": f"{N_REPEATS:,}".replace(",", r"\,"),
-              "<n_slice>": f"{N_SLICE:,}".replace(",", r"\,"), "<runs>": str(len(d["excesses"])),
-              "<exact_loss>": f"{-np.log(d['answer']):.3f}",
-              "<mean_loss>": f"{np.mean(-np.log(np.clip(d['repeats'], EPS, 1))):.3f}"}
-    for placeholder, value in values.items():
-        text = text.replace(placeholder, value)
-    return text
+def mc_average_loss(w):
+    torch.manual_seed(SEED)
+    with torch.no_grad():
+        fills = px.sample(MC_FEW * REPEATS, x_obs=x_missing)                    # (points, samples, 2)
+        p = torch.sigmoid(fills @ w).view(N_POINTS, REPEATS, MC_FEW).mean(dim=-1).clamp(EPS, 1 - EPS)
+        losses = -(y[:, None] * torch.log(p) + (1 - y[:, None]) * torch.log(1 - p))
+        return (losses.mean() + w.square().sum() / (2 * C * N_POINTS)).item() - j_star
 
-def plot_steps():
-    for name, d in pieces().items():
-        texts = {key: fill(text, d) for key, text in {**{f"goal_{k}": v for k, v in GOAL.items()},
-                                                      **TEXTS[name]}.items()}
-        plot_train_step_by_step(d, texts, f"{OUT_DIR}/{name}.pdf")
 
-if __name__ == "__main__":
-    plot_steps()
+# the density of the data on a grid, for the setup
+G1 = np.linspace(x_np[:, 0].min() - 0.5, x_np[:, 0].max() + 0.5, 200)
+G2 = np.linspace(x_np[:, 1].min() - 0.5, x_np[:, 1].max() + 0.5, 200)
+grid = torch.tensor(np.stack(np.meshgrid(G1, G2), axis=-1).reshape(-1, 2), dtype=torch.float32)
+with torch.no_grad():
+    density = np.exp(px(grid).numpy()).reshape(len(G2), len(G1))
+
+# ── the figure ────────────────────────────────────────────────────────────────
+
+def along(value):
+    return np.array([value(torch.tensor(t * w_np, dtype=torch.float32)) for t in T])
+
+
+def gaps(path):
+    return np.array([exact_objective(torch.tensor(w)) - j_star for w in path])
+
+
+landscape_mc = landscape(mc_average_loss)
+row, column = np.unravel_index(np.argmin(landscape_mc), landscape_mc.shape)
+
+prediction_exact, prediction_pcpg = along_point(exact), along_point(pcpg)
+torch.manual_seed(SEED)
+prediction_mc = [along_point(mc_few) for _ in range(3)]
+path_exact, path_pcpg = train(exact.differentiable, SEED), train(pcpg.differentiable, SEED)
+paths_mc = [train(mc_few.differentiable, SEED + run) for run in range(3)]
+path_mc_same = train(mc_same.differentiable, SEED)
+
+d = dict(x=x_np, x_missing=x_missing_np, y=y_np, point=point, x1=x1, X2=X2, line_density=line_density,
+         line_sigmoid=line_sigmoid, answer=answer, mean_x2=mean_x2, w_star=w_np, w_complete=w_complete,
+         w_mean=w_mean, n_points=N_POINTS, n_incomplete=int(incomplete.sum()), G1=G1, G2=G2, density=density,
+         mc_few=MC_FEW, mc_same=MC_SAME, n_outer=N_OUTER, n_inner=N_INNER, label=label,
+         # step 2
+         line_bells=[bell_sum(k) for k in BELL_KS], bell_ks=BELL_KS, answer_pcpg=answer_pcpg, samples=samples,
+         # steps 3 and 4
+         t=T, show_t=SHOW_T, sigma_t=[1 / (1 + np.exp(-t * z_line)) for t in SHOW_T],
+         prediction_exact=prediction_exact, prediction_pcpg=prediction_pcpg, prediction_mc=prediction_mc,
+         point_loss_exact=-np.log(of_label(prediction_exact)), point_loss_pcpg=-np.log(of_label(prediction_pcpg)),
+         point_loss_mc=[-np.log(np.clip(of_label(p), EPS, 1)) for p in prediction_mc],
+         point_loss_mc_mean=np.array([mc_point_loss(t) for t in T]),
+         loss_exact=along(loss_with(exact.differentiable)), loss_pcpg=along(loss_with(pcpg.differentiable)),
+         loss_mc=along(mc_average_loss),
+         # step 5
+         W1=W1, W2=W2, landscape=landscape(loss_with(exact.differentiable)), mc_minimum=(W1[column], W2[row]),
+         show_epochs=SHOW_EPOCHS, path_exact=path_exact, path_pcpg=path_pcpg, paths_mc=paths_mc,
+         path_mc_same=path_mc_same, gaps_exact=gaps(path_exact), gaps_pcpg=gaps(path_pcpg),
+         gaps_mc=[gaps(p) for p in paths_mc], gaps_mc_same=gaps(path_mc_same))
+
+os.makedirs(OUT_DIR, exist_ok=True)
+plot_training_step_by_step(d, f"{OUT_DIR}/step_by_step.pdf")
