@@ -1,9 +1,10 @@
-# density and cdf of the polya-gamma distribution PG(1, 0)
+# density, cdf and samples of the polya-gamma distribution PG(1, 0)
 #
 # no closed form, but two alternating series: one converges fast for large
 # omega, the other for small omega. we switch between them at 0.15
 
 import numpy as np
+from polyagamma import random_polyagamma
 from scipy.special import erfc
 
 _K = np.arange(30)[:, None]          # series terms, as a column for broadcasting
@@ -30,3 +31,7 @@ def pg_pdf(omega):
 def pg_cdf(omega):
     omega = np.asarray(omega, dtype=float)
     return np.where(omega < 0.15, _cdf_small(omega), _cdf_large(omega))
+
+# n samples of PG(1, 0) as a numpy array, with the polyagamma package
+def sample_pg(n, rng=None):
+    return random_polyagamma(1.0, np.zeros(n), random_state=rng)

@@ -35,6 +35,8 @@ The palette is pastel, built on Catppuccin: the Latte neutrals, and every colour
 | p(z) and the densities the nodes come from (PG(1,0), N(0, γ), e^{-t²}) | light grey | `_CAT["grey"]` `#dce0e8` |
 | Text, axes, ticks | dark slate | `_CAT["text"]` `#4c4f69` |
 
+In the experiment figures of `estimate.py` (error against budget, number of features, …) the methods have fixed colours too (`_METHOD_STYLE`), the line colours `_LINE` of the method figures (as in the step-by-step figure): PCPG indigo like the bells with squares, MC coral with circles, mean imputation a dashed grey line like p(z). The PCPG variants are coloured by the part that is Monte Carlo: the outer integral (bells) pastel indigo, the inner one (waves) pastel coral, both wine, all in `_FILL` or `_LINE` tones. The training figures of `train.py` add the oracle on complete data (dotted slate) and the exact objective. The target of a figure is drawn as a pale wide butter band: the exact objective in the objective-gap figures, complete data in the accuracy figures (where exact is left out). These figures are one row of three panels at the text width with the legend above them (`_three_panels`, `_top_legend`).
+
 Within a family, the *followed* piece (the one tracked through all steps, e.g. the bell with the largest weight) is the darkest tone.
 
 Do not use plain green or purple. The look should stay pastel but vivid. Keep the colours of the bells and the waves clearly different, and never let σ and the waves share a hue.

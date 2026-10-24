@@ -20,3 +20,6 @@ venv/
 # Generated figures (thesis/figures/ is kept — it holds template assets)
 /figures/
 code/figures/
+
+# fitted models of estimate.py
+code/cache/

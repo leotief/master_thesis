@@ -5,6 +5,5 @@ could be hard or not possible to sample from certain distr
 
 how to bound the bias of the deterministic variant
 han zhao - semantic bottleneck
-more y / classes
 
 why is training with mc bad? implement training with mc and training with pcpg

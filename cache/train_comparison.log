@@ -1,0 +1,49 @@
+comparison (gmm, budget 320, 3 seeds)
+
+5 features, 30% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           1.9e-04        0.7792         0.8875    0.01s
+    Mean imputation         4.6e-03        0.7780         0.8885    0.01s
+    MC                      3.4e-05        0.7790         0.8888    0.91s
+    PCPG                    1.8e-04        0.7795         0.8898    2.22s
+    Exact                   3.0e-05        0.7792         0.8892    0.88s
+
+5 features, 50% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           3.6e-04        0.6935         0.8875    0.01s
+    Mean imputation         4.4e-03        0.6972         0.8868    0.02s
+    MC                      2.5e-05        0.7003         0.8902    0.73s
+    PCPG                    1.0e-04        0.6998         0.8895    1.99s
+    Exact                   1.8e-05        0.7002         0.8902    0.81s
+
+5 features, 80% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           1.5e-03        0.5722         0.8875    0.01s
+    Mean imputation         2.1e-03        0.5792         0.8843    0.01s
+    MC                      1.7e-05        0.5793         0.8837    0.75s
+    PCPG                    2.1e-04        0.5797         0.8843    2.01s
+    Exact                   7.4e-06        0.5797         0.8833    0.82s
+
+10 features, 30% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           9.0e-04        0.7367         0.7900    0.01s
+    Mean imputation         3.0e-03        0.7380         0.7892    0.01s
+    MC                      7.9e-07        0.7358         0.7847    1.08s
+    PCPG                    2.8e-07        0.7362         0.7843    2.40s
+    Exact                   3.0e-07        0.7362         0.7843    0.79s
+
+10 features, 50% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           9.3e-04        0.7005         0.7900    0.01s
+    Mean imputation         4.3e-03        0.6983         0.7858    0.01s
+    MC                      1.6e-06        0.7015         0.7860    1.07s
+    PCPG                    2.8e-07        0.7010         0.7862    2.56s
+    Exact                   2.8e-07        0.7010         0.7862    0.81s
+
+10 features, 80% missing
+                                gap  acc. missing  acc. complete     time
+    Complete data           3.1e-03        0.5992         0.7900    0.01s
+    Mean imputation         3.5e-03        0.6058         0.7828    0.01s
+    MC                      4.0e-06        0.6078         0.7858    1.07s
+    PCPG                    2.2e-07        0.6078         0.7853    2.51s
+    Exact                   2.0e-07        0.6078         0.7853    0.80s

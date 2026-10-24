@@ -1,6 +1,7 @@
 # the complete pcpg procedure, on the setup of main.py (same data, gmm,
 # classifier and test point), as one figure, figures/pcpg/step_by_step.pdf:
-#   goal     the area under sigmoid(z) x p(z)
+#   goal     the expected prediction as an equation, then as the area under
+#            sigmoid(z) x p(z)
 #   step 1   pg: where the bells come from, and how they add up to sigmoid(z)
 #   step 2   hs: where the waves come from, and how they add up to a bell
 #   step 3   the area under wave x p(z) comes from the model's cf
@@ -34,7 +35,7 @@ from sklearn.linear_model import LogisticRegression
 
 from utils.data import DataManager
 from utils.gmm import GMM
-from utils.pg_quadrature import pg_quadrature
+from utils.quadrature import pg_quadrature
 from utils.pg_density import pg_pdf
 from utils.plots import (plot_pcpg_step_by_step, plot_thesis_bells, plot_thesis_cf,
                          plot_thesis_summary, plot_thesis_waves)
@@ -141,11 +142,13 @@ def answer():
 # without spaces so that wrapping the lines never splits it. <...> are filled
 # in by plot_step_by_step
 TEXTS = dict(
-    goal=r"Some features are missing, so the score $z=w^\top{}x$ is uncertain: $p(z)$, from "
-         r"the density model (grey, area 1). The expected prediction "
-         r"$\mathbb{E}[\sigma(z)\mid{}x_{\mathrm{obs}}]$ is the yellow area under "
-         r"$\sigma(z)\times{}p(z)$. The model can not compute it directly, so PCPG builds it "
-         r"from pieces it can.<flip>",
+    goal_heading=r"Compute $\mathbb{E}_{p(x^m\mid{}x^o)}\big[\sigma(w^\top{}x)\big]$",
+    goal_title=r"$\displaystyle=\mathbb{E}_{p(z\mid{}x^o)}\big[\sigma(z)\big]=\int\sigma(z)\,p(z)\,dz$",
+    goal=r"The prediction only sees the missing features $x^m$ through the score "
+         r"$z=w_o^\top{}x^o+w_m^\top{}x^m$, a single number. As $x^m$ is uncertain, so is $z$, "
+         r"with density $p(z\mid{}x^o)$, from now on $p(z)$ (grey, area 1). Averaging over $x^m$ "
+         r"is therefore averaging over $z$: the yellow area under $\sigma(z)\times{}p(z)$. The "
+         r"model can not compute it directly, so PCPG builds it from pieces it can.<flip>",
     pg=r"P\'olya-Gamma: $\sigma(z)$ can be written as a weighted sum of bells "
        r"$e^{z/2-\gamma{}z^2/2}$ of different widths $\gamma$. Indigo: the sums of the bells "
        r"with the largest weights, closing in on $\sigma(z)$. But where do the bells come from?",

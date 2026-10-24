@@ -4,7 +4,7 @@
 #
 # this is the outer integral of pcpg in one dimension. the expectation is
 # approximated by picking a few points gamma_j with weights w_j (random samples
-# or a quadrature rule from utils/pg_quadrature.py, it works the same for both):
+# or a quadrature rule from utils/quadrature.py, it works the same for both):
 #   1. pick points gamma_j on the PG(1, 0) distribution, with weights w_j
 #   2. every point gives a bell e^{-gamma_j z^2 / 2} in z. small gamma_j gives a
 #      wide bell, large gamma_j a narrow one
@@ -34,7 +34,7 @@ import numpy as np
 from polyagamma import random_polyagamma
 
 from utils.pg_density import pg_pdf
-from utils.pg_quadrature import pg_quadrature
+from utils.quadrature import pg_quadrature
 from utils.plots import (blues, plot_error_vs_nodes,
                          plot_function_and_error, plot_nodes_on_density,
                          plot_pg_identity_steps)
@@ -44,7 +44,7 @@ OUT_DIR = "figures/pg_identity"
 # ── config ────────────────────────────────────────────────────────────────────
 
 # method -> label, colour, linestyle. "mc" draws random PG samples, the others
-# are the rules from utils/pg_quadrature.py. colours from the palette in
+# are the rules from utils/quadrature.py. colours from the palette in
 # utils/plots.py (see code/PLOTTING.md): greys for mc and the plain trapezoid,
 # one colour per family, dashed for the log variant, pinks/greens for the fits
 METHODS = {

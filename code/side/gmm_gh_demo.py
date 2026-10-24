@@ -1,4 +1,4 @@
-# the gmm gauss-hermite baseline (GMMGaussHermite in utils/baselines.py), on the
+# the gmm gauss-hermite baseline (MixtureGaussHermite in utils/baselines.py), on the
 # setup of main.py (same data, gmm, classifier and test point), as one figure,
 # figures/gmm_gh/step_by_step.pdf, in the style of the pcpg one:
 #   goal     the area under sigmoid(z) x p(z)

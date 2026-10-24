@@ -55,6 +55,15 @@ DENSITY = "0.88"
 def blues(n):
     return plt.cm.Blues(np.linspace(0.4, 0.95, n))
 
+# the experiment figures go to figures/<folder>/ and directly into the thesis
+THESIS_FIGURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../thesis/figures")
+
+# plot(*args, path) for figures/<folder>/<name>.pdf and the same in the thesis
+def save_figure(plot, folder, name, *args):
+    for root in ("figures", THESIS_FIGURES):
+        os.makedirs(f"{root}/{folder}", exist_ok=True)
+        plot(*args, f"{root}/{folder}/{name}.pdf")
+
 # runs the plot function inside the style
 def styled(fn):
     @functools.wraps(fn)
@@ -464,7 +473,7 @@ def _band(ax, x, y, color, label=None, lw=13):
     ax.plot(x, y, color=color, lw=lw, solid_capstyle="butt", zorder=1, label=label)
 
 # zero line, x label, room above the data for the legend, and a bold title
-def _finish(ax, title, xlabel="score $z$", room=0.35, legend=True):
+def _finish(ax, title, xlabel="score $z$", room=0.35, legend=True, fontsize=15):
     ax.axhline(0, color=_CAT["surface"], lw=0.9, zorder=0)
     ax.set_xlabel(xlabel, fontsize=12)
     lo, hi = ax.get_ylim()
@@ -472,7 +481,7 @@ def _finish(ax, title, xlabel="score $z$", room=0.35, legend=True):
     if legend:
         ax.legend(loc="upper left")
     if title:
-        ax.set_title(_bold(title), fontsize=15, pad=10, color=_CAT["text"])
+        ax.set_title(_bold(title), fontsize=fontsize, pad=10, color=_CAT["text"])
 
 # an explanation from x0 to x1 (figure fractions), wrapped to that width,
 # centred below the axes ax
@@ -509,21 +518,23 @@ def _wrap(text, width):
 
 # the headings of the steps. rows are (badge, heading, axes): above the axes,
 # centred, a small badge ("Step 1") on a short thin rule and the
-# heading below it. the title goes above the first badge
+# heading below it, in an optional size and lifted by an optional amount
+# (inches). the title goes above the first badge
 def _headings(fig, rows, title=None):
     width, height = fig.get_size_inches()
-    x_left = min(ax.get_position().x0 for _, _, axes in rows for ax in axes)
-    x_right = max(ax.get_position().x1 for _, _, axes in rows for ax in axes)
+    x_left = min(ax.get_position().x0 for _, _, axes, *_ in rows for ax in axes)
+    x_right = max(ax.get_position().x1 for _, _, axes, *_ in rows for ax in axes)
     centre = (x_left + x_right) / 2
-    for badge, heading, axes in rows:
-        top = max(ax.get_position().y1 for ax in axes)
+    for badge, heading, axes, *opts in rows:
+        size, lift = (opts + [23, 0][len(opts):])[:2]
+        top = max(ax.get_position().y1 for ax in axes) + lift / height
         y_badge = top + 1.42 / height
         fig.add_artist(matplotlib.lines.Line2D([centre - 3 / width, centre + 3 / width], [y_badge] * 2,
                                                color=_CAT["surface"], lw=1, zorder=1))
         fig.text(centre, y_badge, _bold(r"\ " + badge.upper() + r"\ "), fontsize=14, color=_CAT["subtext"],
                  va="center", ha="center", zorder=3,
                  bbox=dict(boxstyle="square,pad=0.45", fc="white", ec="none"))
-        fig.text(centre, top + 0.62 / height, _bold(heading), fontsize=23, color=_CAT["text"],
+        fig.text(centre, top + 0.62 / height, _bold(heading), fontsize=size, color=_CAT["text"],
                  va="bottom", ha="center")
     if title:
         top = max(ax.get_position().y1 for ax in rows[0][2])
@@ -535,14 +546,14 @@ def _first_two_and_all(seq):
     return [seq[0], seq[1], seq[-1]]
 
 # the goal panel, the same in both figures
-def _goal_panel(ax, z, pz, sigma, answer):
+def _goal_panel(ax, z, pz, sigma, answer, title=r"The area under $\sigma(z) \times p(z)$", fontsize=15):
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$: area 1")
     ax.plot(z, sigma * pz.max(), color=_LINE["gold"], lw=1.6, ls=(0, (4, 2)), label=r"$\sigma(z)$ (scaled)")
     ax.fill_between(z, sigma * pz, color=_FILL["gold"], lw=0,
                     label=rf"$\sigma(z) \times p(z)$: area {answer:.4f}")
     ax.plot(z, sigma * pz, color=_LINE["gold"], lw=1.2)
     ax.set_xlim(z[0], z[-1])
-    _finish(ax, r"The area under $\sigma(z) \times p(z)$", room=0.6)
+    _finish(ax, title, room=0.6, fontsize=fontsize)
 
 def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
     z, pz = d["z"], d["pz"]
@@ -583,7 +594,7 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
         _finish(ax, title, room=0.6 if first else 0, legend=first)
 
     # ── goal ──
-    _goal_panel(ax_goal, z, pz, sigma, d["answer"])
+    _goal_panel(ax_goal, z, pz, sigma, d["answer"], texts["goal_title"])
 
     # ── steps 1 and 2: the sums (only curves), then where the pieces come from ──
     ax = ax_pg
@@ -673,7 +684,7 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
     _row_caption(fig, [ax_wave, ax_cf], texts["wave_area"], texts["cf"])
     _row_caption(fig, ax_waves, texts["waves"])
     _row_caption(fig, ax_bells, texts["bells"])
-    rows = [("Goal", "What we want to compute", [ax_goal]),
+    rows = [("Goal", texts["goal_heading"], [ax_goal]),
             ("Step 1", r"$\sigma(z)$ is a sum of bells", [ax_pg, ax_pg_origin]),
             ("Step 2", "Every bell is a sum of waves", [ax_hs, ax_hs_origin]),
             ("Step 3", "The area under a wave comes from the model", [ax_wave, ax_cf]),
@@ -922,4 +933,471 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     _headings(fig, rows, title)
     # a white margin, so the page border of a pdf viewer does not touch the panels
     fig.savefig(out_path, bbox_inches="tight", pad_inches=1)
+    plt.close(fig)
+
+
+# ── monte carlo step by step (mc_demo.py) ────────────────────────────────────
+
+def plot_mc_step_by_step(d, texts, out_path, title=None):
+    with plt.rc_context(_BIG_STYLE):
+        _plot_mc_step_by_step(d, texts, out_path, title)
+
+def _plot_mc_step_by_step(d, texts, out_path, title=None):
+    z, pz, mix = d["z"], d["pz"], d["mix"]
+    sigma = 1 / (1 + np.exp(-z))
+    order, n_comp, n_show = d["order"], len(d["mix"]), d["n_show"]
+    # the components in blue as in the gmm figure, the one with the largest
+    # weight dark, the others lighter
+    comp_line = dict(zip(order, [_LINE["indigo"]] + _tones("indigo", n_comp - 1, lo=0.6, hi=1.2)))
+
+    # 6 columns, as in the pcpg figure
+    fig = plt.figure(figsize=(16, 42))
+    grid = fig.add_gridspec(5, 6, height_ratios=[1, 1, 1, 0.9, 1], hspace=1.95, wspace=0.6)
+    ax_goal = fig.add_subplot(grid[0, 1:5])
+    ax_draw, ax_scores = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
+    ax_predict, ax_average = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
+    ax_hists = [fig.add_subplot(grid[3, c:c + 2]) for c in (0, 2, 4)]
+    ax_runs, ax_rate = fig.add_subplot(grid[4, 0:3]), fig.add_subplot(grid[4, 3:6])
+    for ax in ax_hists[1:]:
+        ax.sharey(ax_hists[0])
+
+    # ── goal ──
+    _goal_panel(ax_goal, z, pz, sigma, d["answer"])
+
+    # ── step 1: fill-ins of the missing features, and their scores ──
+    ax = ax_draw
+    for k in order[::-1]:
+        sel = d["k"] == k
+        ax.plot(*d["x_mis"][sel].T, "o", color=comp_line[k], ms=3, alpha=0.55, mec="none",
+                label=rf"component {k + 1}, $\pi_{k + 1} = {mix[k]:.3f}$")
+        t = np.linspace(0, 2 * np.pi, 200)
+        ax.plot(d["means"][k, 0] + 2 * d["stds"][k, 0] * np.cos(t),
+                d["means"][k, 1] + 2 * d["stds"][k, 1] * np.sin(t), color=comp_line[k], lw=2)
+    # the legend from the top component down
+    handles, labels = ax.get_legend_handles_labels()
+    ax.set_ylabel(rf"missing feature $x_{{{d['feats'][1] + 1}}}$", fontsize=12)
+    _finish(ax, r"Fill-ins $x_{\mathrm{mis}}^{(i)}$ drawn from the model",
+            xlabel=rf"missing feature $x_{{{d['feats'][0] + 1}}}$", room=0.85, legend=False)
+    ax.legend(handles[::-1], labels[::-1], loc="upper left", markerscale=2.5)
+
+    ax = ax_scores
+    ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$")
+    ax.hist(d["z_samples"], bins=60, range=(z[0], z[-1]), density=True, histtype="step",
+            color=_LINE["indigo"], lw=2, label=rf"histogram of {len(d['z_samples'])} scores $z_i$")
+    ax.plot(d["z_samples"][:200], np.full(200, -0.03 * pz.max()), "|", color=_LINE["indigo"],
+            ms=10, alpha=0.5)
+    ax.set_xlim(z[0], z[-1])
+    _finish(ax, r"Their scores $z_i = w^\top x^{(i)}$ are samples of $p(z)$", room=0.45)
+
+    # ── step 2: the prediction at every sample, and their average ──
+    zs = d["z_run"][:n_show]
+    preds = 1 / (1 + np.exp(-zs))
+    ax = ax_predict
+    ax.fill_between(z, pz / pz.max() * 0.6, color=_CAT["grey"], lw=0, label="$p(z)$ (scaled)")
+    _dashed(ax, z, sigma, "gold", label=r"$\sigma(z)$")
+    ax.vlines(zs, 0, preds, color=_FILL["indigo"], lw=1.5)
+    ax.plot(zs, preds, "o", color=_LINE["indigo"], ms=7, zorder=5,
+            label=rf"predictions $\sigma(z_i)$ of {n_show} samples")
+    ax.set_xlim(z[0], z[-1])
+    _finish(ax, r"The prediction $\sigma(z_i)$ for every sample", room=0.4)
+
+    ax = ax_average
+    i = np.arange(1, n_show + 1)
+    _band(ax, [0.3, n_show + 0.7], [d["answer"]] * 2, _SIGMA_BAND, label=f"exact {d['answer']:.4f}")
+    ax.vlines(i, 0, preds, color=_FILL["indigo"], lw=1.5)
+    ax.plot(i, preds, "o", color=_LINE["indigo"], ms=7, zorder=5, label=r"$\sigma(z_i)$")
+    ax.plot([0.3, n_show + 0.7], [preds.mean()] * 2, color=_LINE["indigo"], lw=2.5,
+            label=rf"average {preds.mean():.4f}")
+    ax.set_xlim(0.3, n_show + 0.7)
+    ax.set_xticks([1, 5, 10, 15, 20])
+    ax.set_ylim(0, 1)
+    _finish(ax, "The estimate is their average", xlabel="sample $i$", room=0.4)
+
+    # ── step 3: the average is the area under sigma x the histogram ──
+    edges = np.linspace(-9, 10, 39)
+    width = edges[1] - edges[0]
+    for ax, n in zip(ax_hists, d["sample_ks"]):
+        first = ax is ax_hists[0]
+        zs = d["z_run"][:n]
+        bars = np.histogram(zs, bins=edges, weights=1 / (1 + np.exp(-zs)) / (n * width))[0]
+        ax.fill_between(z, sigma * pz, color=_BAND["gold"], lw=0, label=r"$\sigma(z) \times p(z)$")
+        ax.stairs(bars, edges, fill=True, color=_FILL["indigo"], alpha=0.75, lw=0,
+                  label=r"$\sigma(z) \times$ histogram")
+        ax.stairs(bars, edges, color=_LINE["indigo"], lw=0.8)
+        _dashed(ax, z, sigma * pz, "gold")
+        ax.set_xlim(edges[0], edges[-1])
+        # shared y axis, so the same room for the legend in every panel
+        ax.set_ylim(0, 2.2 * (sigma * pz).max())
+        extra = rf"  (exact {d['answer']:.4f})" if n == d["sample_ks"][-1] else ""
+        _finish(ax, f"{n:,} samples: area {bars.sum() * width:.4f}{extra}".replace(",", r"\,"),
+                room=0, legend=first)
+
+    # ── step 4: many runs, and how fast the error shrinks ──
+    ax = ax_runs
+    n = np.arange(1, d["running"].shape[1] + 1)
+    sd = np.sqrt(d["var"])
+    ax.fill_between(n, d["answer"] - 2 * sd / np.sqrt(n), d["answer"] + 2 * sd / np.sqrt(n),
+                    color=_SIGMA_BAND, lw=0, label=r"exact $\pm 2\sigma_{\mathrm{MC}}/\sqrt{n}$")
+    ax.axhline(d["answer"], color=_LINE["gold"], lw=1.2, ls=(0, (4, 2)))
+    runs = d["running"]
+    for run, color in zip(runs[1:], _tones("indigo", len(runs) - 1, lo=0.5, hi=1.1)):
+        ax.plot(n, run, color=color, lw=1.2)
+    ax.plot(n, runs[0], color=_DEEP["indigo"], lw=2, label=f"{len(runs)} runs, the run of step 3 dark")
+    ax.set_xscale("log")
+    ax.set_xlim(1, n[-1])
+    ax.set_ylim(max(0, d["answer"] - 0.45), min(1, d["answer"] + 0.45))
+    ax.set_ylabel("estimate after $n$ samples", fontsize=12)
+    _finish(ax, "Every run is different, but all close in", xlabel="samples $n$", room=0.35)
+
+    ax = ax_rate
+    ax.plot(d["ns"], sd / np.sqrt(d["ns"]), color=_CAT["overlay"], lw=2, ls=(0, (5, 2.5)),
+            label=r"$\sigma_{\mathrm{MC}}/\sqrt{n}$")
+    ax.plot(d["ns"], d["rmse"], "o", color=_LINE["indigo"], ms=6, label="root mean squared error")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(0.8, 1.25 * d["ns"][-1])
+    ax.set_ylabel("error", fontsize=12)
+    ax.set_title(_bold(r"The error shrinks like $1/\sqrt{n}$"), fontsize=15, pad=10, color=_CAT["text"])
+    ax.set_xlabel("samples $n$", fontsize=12)
+    ax.legend(loc="lower left")
+
+    _caption(fig, ax_goal, texts["goal"])
+    _row_caption(fig, [ax_draw, ax_scores], texts["draw"], texts["scores"])
+    _row_caption(fig, [ax_predict, ax_average], texts["predict"], texts["average"])
+    _row_caption(fig, ax_hists, texts["hists"])
+    _row_caption(fig, [ax_runs, ax_rate], texts["runs"], texts["rate"])
+    rows = [("Goal", "What we want to compute", [ax_goal]),
+            ("Step 1", "Fill in the missing features at random, from the model", [ax_draw, ax_scores]),
+            ("Step 2", "Predict for every fill-in and average", [ax_predict, ax_average]),
+            ("Step 3", r"The average is an area under $\sigma(z) \times$ a histogram", ax_hists),
+            ("Step 4", "The estimate is random, its error shrinks slowly", [ax_runs, ax_rate])]
+    _headings(fig, rows, title)
+    # a white margin, so the page border of a pdf viewer does not touch the panels
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=1)
+    plt.close(fig)
+
+
+# ── estimator comparison (estimate.py) ───────────────────────────────────────
+
+# thesis figures of the experiments: the error (rmse over the test points) of
+# the methods, in the line colours of the method figures (_LINE, as in the
+# step-by-step figure). every method has one colour in every figure: pcpg
+# indigo like the bells, mc coral, mean imputation the grey of p(z). the pcpg
+# variants are coloured by the part that is mc: the outer integral (bells)
+# pastel indigo, the inner one (waves) pastel coral, both wine
+_METHOD_STYLE = {
+    "Mean imputation": dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker=None),
+    "MC":              dict(color=_LINE["coral"], marker="o"),
+    "PCPG":            dict(color=_LINE["indigo"], marker="s"),
+    "PCPG outer MC":   dict(color=_FILL["indigo"], marker="^"),
+    "PCPG inner MC":   dict(color=_FILL["coral"], marker="v"),
+    "PCPG full MC":    dict(color=_LINE["wine"], marker="D"),
+}
+def _percent(rate):
+    return rf"{round(100 * rate)}\%"
+
+# one row of three panels at the text width, the legend above them
+def _three_panels(**kwargs):
+    return plt.subplots(1, 3, figsize=(THESIS_WIDTH, 2.1), layout="constrained", **kwargs)
+
+def _top_legend(fig, ax, ncol):
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside upper center", ncol=ncol)
+
+def _method_line(ax, x, y, name, **kwargs):
+    style = _METHOD_STYLE[name]
+    ax.plot(x, y, color=style["color"], ls=style.get("ls", "-"), marker=style["marker"], ms=3, lw=1.1,
+            mfc=style.get("mfc"), label=name, **kwargs)
+
+# the main methods against the number of features (x), one column per missing
+# rate: the error on top, the time for all n_points test points below. errors
+# and times: missing rate -> name -> one value per number of features
+@styled
+def plot_estimate_comparison(features, rates, errors, times, n_points, out_path):
+    fig, axes = plt.subplots(2, 3, figsize=(THESIS_WIDTH, 3.8), layout="constrained", sharex=True, sharey="row")
+    for column, rate in zip(axes.T, rates):
+        for ax, values in zip(column, (errors, times)):
+            for name, ys in values[rate].items():
+                _method_line(ax, features, ys, name)
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+        column[0].set_title(f"{_percent(rate)} missing")
+        column[1].set_xlabel("features")
+    axes[0, 0].set_ylabel("RMSE")
+    axes[1, 0].set_ylabel(f"time for {n_points:,} points (s)".replace(",", r"\,"))
+    _top_legend(fig, axes[0, 0], ncol=len(errors[rates[0]]))
+    fig.savefig(out_path)
+    plt.close(fig)
+
+# the four pcpg variants, error against budget, one panel per missing rate.
+# results: one dict per missing rate, name -> (budgets, errors)
+@styled
+def plot_pcpg_variants(rates, results, out_path):
+    fig, axes = _three_panels(sharey=True)
+    for ax, rate, result in zip(axes, rates, results):
+        for name, (budgets, values) in result.items():
+            _method_line(ax, budgets, values, name)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("budget (cf evaluations)")
+        ax.set_title(f"{_percent(rate)} missing")
+    axes[0].set_ylabel("RMSE")
+    _top_legend(fig, axes[0], ncol=len(results[0]))
+    fig.savefig(out_path)
+    plt.close(fig)
+
+# ── training on incomplete data (train.py) ───────────────────────────────────
+
+# the methods of estimate.py keep their colours, the oracle on complete data
+# is a dotted slate line. the target of a figure (exact for the objective
+# gap, complete data for the accuracies) is a pale wide butter band, as every
+# target, the methods that reach it sit inside it
+_METHOD_STYLE["Complete data"] = dict(color=_CAT["text"], ls=(0, (1, 1.5)), marker=None)
+
+# complete data and mean imputation fit by sklearn (the comparison of sklearn
+# against adam) in their colours with open markers, the ones by adam with
+# filled markers and solid lines
+_METHOD_STYLE["Complete data, sklearn"] = dict(color=_CAT["text"], ls=(0, (1, 1.5)), marker="o", mfc="white")
+_METHOD_STYLE["Mean imputation, sklearn"] = dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker="o", mfc="white")
+_SOLID = {"Complete data": dict(color=_CAT["text"], marker="s"), "Mean imputation": dict(color=_CAT["overlay"], marker="s")}
+
+# a method's line, or the band if it is the target
+def _train_line(ax, x, y, name, target):
+    if name == target:
+        _band(ax, x, y, _SIGMA_BAND, label=name, lw=13 * _THESIS_SCALE)
+    else:
+        _method_line(ax, x, y, name)
+
+# the objective gap is positive, but can come out at 0 or slightly below
+# for the optimum itself (rounding), the log axis needs a floor
+def _positive(values):
+    return np.maximum(np.asarray(values, dtype=float), 1e-8)
+
+# all training methods against the number of features, one panel per missing
+# rate, as the comparison of estimate.py. results: missing rate -> method -> one
+# value per number of features, ylabel the score, log for a log y axis (the
+# objective gap), target the method drawn as the target band
+@styled
+def plot_train_features(features, rates, results, ylabel, log, target, out_path):
+    fig, axes = _three_panels(sharey=True)
+    for ax, rate in zip(axes, rates):
+        # the target first, so the legend starts with it
+        for name, values in sorted(results[rate].items(), key=lambda item: item[0] != target):
+            _train_line(ax, features, _positive(values) if log else values, name, target)
+        ax.set_xscale("log")
+        if log:
+            ax.set_yscale("log")
+        ax.set_xlabel("features")
+        ax.set_title(f"{_percent(rate)} missing")
+    axes[0].set_ylabel(ylabel)
+    _top_legend(fig, axes[0], ncol=3)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
+# ── training step by step (train_demo.py) ────────────────────────────────────
+
+# how w is trained on incomplete data, with pcpg or with mc, one row per step,
+# the same rows in both figures so they can be compared:
+#   goal     the prediction of a training point, the area under sigma(z) x p(z)
+#   step 1   the estimates of many training points against the exact values,
+#            and the followed point asked many times
+#   step 2   the loss -log p of these estimates, and its error against the budget
+#   step 3   the objective along w = t w*, and its slope
+#   step 4   the excess objective during training, and the path of w
+# the method has its colour of the experiment figures (pcpg indigo, mc coral),
+# the exact values are the target in butter yellow (bands and dashed lines),
+# p(z) grey. d is a dict, see pieces in train_demo.py, texts the explanations
+# and the headings
+
+def plot_train_step_by_step(d, texts, out_path, title=None):
+    with plt.rc_context(_BIG_STYLE):
+        _plot_train_step_by_step(d, texts, out_path, title)
+
+# a bold title and the legend, for panels where _finish does not fit (log axes)
+def _title(ax, title, xlabel, legend="upper left"):
+    ax.set_xlabel(xlabel, fontsize=12)
+    if legend:
+        ax.legend(loc=legend)
+    ax.set_title(_bold(title), fontsize=15, pad=10, color=_CAT["text"])
+
+def _plot_train_step_by_step(d, texts, out_path, title=None):
+    z, pz, answer = d["z"], d["pz"], d["answer"]
+    sigma = 1 / (1 + np.exp(-z))
+    pcpg = d["method"] == "pcpg"
+    f = "indigo" if pcpg else "coral"
+    name = "PCPG" if pcpg else "MC"
+    unit = "nodes" if pcpg else "samples"
+    # several runs from dark (the first) to light
+    run_colors = [_LINE[f]] + _tones(f, max(1, len(d["excesses"]) - 1), lo=0.75, hi=1.2)
+
+    fig = plt.figure(figsize=(16, 42))
+    grid = fig.add_gridspec(5, 6, height_ratios=[1, 1, 1, 1, 1], hspace=1.95, wspace=0.6)
+    ax_goal = fig.add_subplot(grid[0, 1:5])
+    ax_scatter, ax_repeat = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
+    ax_loss, ax_error = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
+    ax_slice, ax_slope = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
+    ax_curve, ax_path = fig.add_subplot(grid[4, 0:3]), fig.add_subplot(grid[4, 3:6])
+
+    # ── goal ──
+    _goal_panel(ax_goal, z, pz, sigma, answer, texts["goal_title"])
+
+    # ── step 1: estimates of many points, and of one point many times ──
+    ax = ax_scatter
+    _band(ax, [0, 1], [0, 1], _SIGMA_BAND, label="exact")
+    ax.plot(d["scatter_exact"], d["scatter"], "o", color=_LINE[f], ms=4.5, alpha=0.6, mec="none",
+            label=f"{name}, {d['budget']} {unit} per point")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_yticks(np.linspace(0, 1, 6))
+    ax.set_ylabel(f"{name} estimate", fontsize=12)
+    _finish(ax, f"{len(d['scatter'])} training points", xlabel="exact prediction $p(y=1\\mid x^o)$",
+            room=0.3)
+
+    ax = ax_repeat
+    reps = d["repeats"]
+    ax.axvline(answer, color=_SIGMA_BAND, lw=13, zorder=1, label=f"exact {answer:.4f}")
+    if pcpg:
+        ax.axvline(reps[0], color=_LINE[f], lw=2.5, zorder=3,
+                   label=f"all {len(reps):,} estimates: {reps[0]:.4f}".replace(",", r"\,"))
+        ax.set_ylim(0, 1)
+        ax.set_yticks([])
+    else:
+        ax.hist(reps, bins=40, range=(0, 1), density=True, color=_FILL[f], alpha=0.75, lw=0,
+                label=f"{len(reps):,} estimates".replace(",", r"\,"), zorder=2)
+        ax.hist(reps, bins=40, range=(0, 1), density=True, histtype="step", color=_LINE[f], lw=1.2, zorder=2)
+        ax.axvline(reps.mean(), color=_LINE[f], lw=2.5, zorder=3, label=f"their mean {reps.mean():.4f}")
+        ax.set_ylabel("density", fontsize=12)
+    ax.set_xlim(0, 1)
+    _finish(ax, "The followed point, asked again and again", xlabel="estimate of $p(y=1\\mid x^o)$",
+            room=0.5)
+
+    # ── step 2: the loss of the estimates, and its error against the budget ──
+    ax = ax_loss
+    p_axis = np.linspace(0.02, 1, 400)
+    ax.plot(p_axis, -np.log(p_axis), color=_CAT["overlay"], lw=2, label=r"loss $-\log\hat{p}$")
+    exact_loss = -np.log(answer)
+    ax.axhline(exact_loss, color=_LINE["gold"], lw=1.6, ls=(0, (4, 2)), label=f"exact loss {exact_loss:.3f}")
+    ax.plot(answer, exact_loss, "o", ms=16, color=_SIGMA_BAND, zorder=2)
+    shown = np.clip(reps[:150], 0.02, 1)
+    ax.plot(shown, -np.log(shown), "o", color=_LINE[f], ms=6, alpha=0.5 if not pcpg else 1, mec="none",
+            zorder=3, label=f"the losses of the estimates" if not pcpg else "the loss of the estimate")
+    if not pcpg:
+        mean_loss = np.mean(-np.log(np.clip(reps, 1e-6, 1)))
+        ax.axhline(mean_loss, color=_LINE[f], lw=2.5, label=f"their mean {mean_loss:.3f}")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 3.2)
+    ax.set_ylabel("loss", fontsize=12)
+    _finish(ax, r"The loss $-\log$ of the estimate", xlabel=r"estimate $\hat{p}$ of $p(y=1\mid x^o)$",
+            room=0.35, legend=False)
+    ax.legend(loc="upper right")
+
+    ax = ax_error
+    budgets, errors = d["loss_errors"]
+    errors = np.maximum(np.abs(errors), 1e-12)
+    if not pcpg:
+        # the bias of -log of an average of S samples, var / (2 S p^2), with the
+        # variance of one sample from the spread of the estimates
+        var = d["budget"] * np.var(d["repeats"])
+        b = np.array(budgets, dtype=float)
+        ax.plot(b, var / (2 * b * answer**2), color=_CAT["overlay"], lw=2, ls=(0, (5, 2.5)),
+                label=r"$\mathrm{Var}[\sigma(z)]/(2Sp^2)$")
+    ax.plot(budgets, errors, "o-", color=_LINE[f], ms=7, lw=2,
+            label="error of the loss" if pcpg else r"bias: mean of $-\log\hat{p}$ minus $-\log p$")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_ylabel("error of the loss", fontsize=12)
+    _title(ax, f"The error of the loss, against the {unit}",
+           xlabel=r"nodes $n_{\mathrm{outer}} \times n_{\mathrm{inner}}$" if pcpg else "samples $S$ per point",
+           legend="upper right")
+
+    # ── step 3: the objective and its slope along w = t w* ──
+    t = d["t"]
+    for ax, i, ylabel, label in ((ax_slice, 0, "mean loss", "objective"), (ax_slope, 1, "slope $d/dt$", "slope")):
+        _band(ax, t, d["slice_exact"][i], _SIGMA_BAND, label=f"exact {label}")
+        for k, (color, run) in enumerate(zip(run_colors + [run_colors[-1]] * 9, d["slices"])):
+            ax.plot(t, run[i], color=color, lw=2 if k == 0 else 1.4,
+                    label=f"{name} {label}" + ("" if pcpg else f", {len(d['slices'])} runs") if k == 0 else None)
+        ax.axvline(1, color=_CAT["surface"], lw=1.2, ls=(0, (2, 2)), zorder=0)
+        ax.set_xlim(t[0], t[-1])
+        ax.set_ylabel(ylabel, fontsize=12)
+    ax_slice.set_ylim(min(d["slice_exact"][0]) - 0.05, min(d["slice_exact"][0]) + 0.3)
+    lo, hi = np.percentile(np.concatenate([d["slice_exact"][1]] + [r[1] for r in d["slices"]]), [2, 98])
+    ax_slope.set_ylim(lo - 0.1 * (hi - lo), hi + 0.1 * (hi - lo))
+    _finish(ax_slice, r"The objective along $w = t\,w^*$", xlabel=r"$t$ \ ($w = t\,w^*$, the optimum at $t=1$)",
+            room=0.3)
+    _finish(ax_slope, "Its slope, which the gradient follows",
+            xlabel=r"$t$ \ ($w = t\,w^*$, the optimum at $t=1$)", room=0.3)
+
+    # ── step 4: training, the excess objective and the path of w ──
+    ax = ax_curve
+    epochs = np.arange(len(d["excess_exact"]))
+    floor = lambda v: np.maximum(v, 1e-8)
+    _band(ax, epochs, floor(d["excess_exact"]), _SIGMA_BAND, label="exact objective")
+    for k, (color, run) in enumerate(zip(run_colors, d["excesses"])):
+        ax.plot(epochs, floor(run), color=color, lw=2 if k == 0 else 1.4,
+                label=f"{name}, {d['budget']} {unit}" + ("" if pcpg else f", {len(d['excesses'])} runs")
+                if k == 0 else None)
+    ax.set_yscale("log")
+    ax.set_xlim(0, epochs[-1])
+    ax.set_ylabel("objective minus its optimum", fontsize=12)
+    _title(ax, "The objective during training", xlabel="epoch", legend="upper right")
+
+    ax = ax_path
+    ax.plot(*d["path_exact"].T, color=_SIGMA_BAND, lw=13, solid_capstyle="round", zorder=1, label="exact")
+    for k, (color, path) in enumerate(zip(run_colors, d["paths"])):
+        ax.plot(*path.T, "o-", color=color, lw=2 if k == 0 else 1.4, ms=4, zorder=3,
+                label=(name if pcpg else f"{name}, {len(d['paths'])} runs") if k == 0 else None)
+    ax.plot(1, 0, "*", color=_DEEP["gold"], ms=22, zorder=4, label="$w^*$")
+    ax.plot(0, 0, "o", color=_CAT["text"], ms=6, zorder=4)
+    ax.annotate("$w=0$", (0, 0), xytext=(8, 8), textcoords="offset points", fontsize=12)
+    ax.set_xlim(-0.05, 1.15)
+    ax.set_ylabel("away from it", fontsize=12)
+    _finish(ax, "The path of $w$", xlabel=r"along the direction of $w^*$ (in units of $\|w^*\|$)", room=0.6,
+            legend=False)
+    ax.legend(loc="upper right")
+
+    _caption(fig, ax_goal, texts["goal_text"])
+    _row_caption(fig, [ax_scatter, ax_repeat], texts["step1"], texts["repeat"])
+    _row_caption(fig, [ax_loss, ax_error], texts["loss"], texts["loss_error"])
+    _row_caption(fig, [ax_slice, ax_slope], texts["slice"], texts["slope"])
+    _row_caption(fig, [ax_curve, ax_path], texts["curve"], texts["path"])
+    rows = [("Goal", texts["goal_heading"], [ax_goal]),
+            ("Step 1", texts["h1"], [ax_scatter, ax_repeat]),
+            ("Step 2", texts["h2"], [ax_loss, ax_error]),
+            ("Step 3", texts["h3"], [ax_slice, ax_slope]),
+            ("Step 4", texts["h4"], [ax_curve, ax_path])]
+    _headings(fig, rows, title)
+    # a white margin, so the page border of a pdf viewer does not touch the panels
+    fig.savefig(out_path, bbox_inches="tight", pad_inches=1)
+    plt.close(fig)
+
+
+# complete data and mean imputation, fit by sklearn and by adam, against the
+# number of features: a row per score (objective gap, test accuracy on the
+# incomplete and on the complete test points), a column per missing rate.
+# results: score -> missing rate -> name -> one value per number of features
+@styled
+def plot_train_sklearn(features, rates, results, out_path):
+    fig, axes = plt.subplots(3, 3, figsize=(THESIS_WIDTH, 5.4), layout="constrained", sharex=True, sharey="row")
+    for row, (score, ylabel) in zip(axes, (("gap", "objective gap"), ("accuracy_missing", "acc., missing"),
+                                           ("accuracy_complete", "acc., complete"))):
+        for ax, rate in zip(row, rates):
+            for name, values in results[score][rate].items():
+                if name in _SOLID:
+                    style = _SOLID[name]
+                    ax.plot(features, _positive(values) if score == "gap" else values, color=style["color"],
+                            marker=style["marker"], ms=3, lw=1.1, label=f"{name}, Adam")
+                else:
+                    _method_line(ax, features, _positive(values) if score == "gap" else values, name)
+            ax.set_xscale("log")
+            if score == "gap":
+                ax.set_yscale("log")
+        row[0].set_ylabel(ylabel)
+    for ax, rate in zip(axes[0], rates):
+        ax.set_title(f"{_percent(rate)} missing")
+    for ax in axes[-1]:
+        ax.set_xlabel("features")
+    _top_legend(fig, axes[0, 0], ncol=2)
+    fig.savefig(out_path)
     plt.close(fig)

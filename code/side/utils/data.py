@@ -14,14 +14,21 @@ from torch.utils.data import DataLoader, TensorDataset
 class DataManager:
     # generates the dataset and splits it into train and test
     # 'sk_class' is sklearn's make_classification (gaussian clusters, any dimension,
-    # balanced classes), 'moons' the 2d moons, mostly for plotting
-    def __init__(self, name, samples=1000, features=20, test_size=0.2, random_state=42):
+    # balanced classes), 'moons' the 2d moons, mostly for plotting.
+    # informative is the fraction of the features of 'sk_class' that carry the
+    # classes (at least 2), the others are noise and none are redundant. None
+    # keeps sklearn's default: 2 informative, 2 redundant (linear combinations of
+    # those), the rest noise
+    def __init__(self, name, samples=1000, features=20, test_size=0.2, random_state=42, informative=None):
         if name == 'sk_class':
+            shape = {} if informative is None else dict(
+                n_informative=max(2, round(informative * features)), n_redundant=0)
             x, y = make_classification(
                 n_samples=samples,
                 n_features=features,
                 weights=[0.5, 0.5],
                 random_state=random_state,
+                **shape,
             )
         elif name == 'moons':
             x, y = make_moons(n_samples=samples, noise=0.1, random_state=random_state)
@@ -72,32 +79,3 @@ class DataManager:
         x[missing_idx] = np.nan
         x = torch.tensor(x)
         return x.to(device) if device is not None else x
-
-    def get_missing_loader(self, missing_rate=0.3, batch_size=64, seed=42):
-        """Training DataLoader with features independently set to NaN at rate missing_rate."""
-        # used in train_missing.py, where also the training data is incomplete.
-        # each entry is dropped on its own, so rows have different patterns
-        # and the number missing per row varies
-        rng    = np.random.default_rng(seed)
-        x_miss = self.x_train.astype(np.float32).copy()
-        x_miss[rng.random(x_miss.shape) < missing_rate] = np.nan
-        dataset = TensorDataset(
-            torch.from_numpy(x_miss),
-            torch.from_numpy(self.y_train),
-        )
-        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    def get_test_missing_batch(self, missing_rate=0.3, seed=42, device=None):
-        """Returns (x_test, y_test) tensors with features independently set to NaN."""
-        # same as above but for the whole test set at once, for evaluation
-        rng   = np.random.default_rng(seed)
-        x_miss = self.x_test.astype(np.float32).copy()
-        x_miss[rng.random(x_miss.shape) < missing_rate] = np.nan
-        x_t = torch.from_numpy(x_miss)
-        y_t = torch.from_numpy(self.y_test)
-        if device is not None:
-            return x_t.to(device), y_t.to(device)
-        return x_t, y_t
-
-
- 

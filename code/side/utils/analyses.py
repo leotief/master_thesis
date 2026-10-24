@@ -1,33 +1,37 @@
-# experiments for main.py
+# helpers for the experiments of estimate.py
 #
-# every method is passed as (estimator, budget_kwargs): the estimator is called as
-# estimator(w, x_partial, **budget_kwargs(budget)) and returns one estimate of
-# E[sigmoid(w^T x) | x_obs] as a float. the budget is the number of cf
-# evaluations (samples for mc), so methods are compared at the same cost.
-# budget_kwargs None means the method is deterministic, takes no budget and
-# only needs to run once.
-#   compare_estimators    all methods at one budget, table with the error vs gt
+# every method is an estimator called as estimator(w, x_partial, **kwargs). on
+# a batch of test points x_partial (B, D) it returns the estimates of
+# E[sigmoid(w^T x) | x_obs] for all of them in one call, as an array (B,). the
+# kwargs are the sample or node counts that are swept (n_samples, n_outer,
+# n_inner, n_nodes), without them the estimator uses the ones of its constructor.
+#   rmse        error of one method over the test points
+#   timed_rmse  the same, the time of one call over all test points and its estimates
 
 import time
 
 import numpy as np
 
-# repeated runs of one method: estimates and time per run in ms
-def _run(method, w, x_partial, budget, n_runs):
-    estimator, budget_kwargs = method
-    kwargs = budget_kwargs(budget) if budget_kwargs else {}
-    n_runs = n_runs if budget_kwargs else 1
-    t0   = time.perf_counter()
-    vals = [estimator(w, x_partial, **kwargs) for _ in range(n_runs)]
-    return np.array(vals), (time.perf_counter() - t0) / n_runs * 1000
+# root mean squared error over the test points (B, D), against their exact
+# values (B,). for the random methods every test point gets one run, so the
+# noise is part of the error
+def rmse(estimator, w, points, truths, **kwargs):
+    return float(np.sqrt(np.mean(np.square(estimator(w, points, **kwargs) - truths))))
 
-# prints mean +- std, absolute error of the mean against the gt method and time
-# per run for every method at the same budget
-def compare_estimators(methods, w, x_partial, gt, budget, n_runs=10):
-    gt_val = _run(methods[gt], w, x_partial, budget, 1)[0].mean()
-    print(f"budget {budget}, {n_runs} runs for the random methods\n")
-    print(f"{'method':<20}  {'mean':>8}  {'std':>9}  {'|error|':>9}  {'ms/run':>8}")
-    for name, method in methods.items():
-        vals, ms = _run(method, w, x_partial, budget, n_runs)
-        print(f"{name:<20}  {vals.mean():8.5f}  {vals.std():9.2e}  {abs(vals.mean() - gt_val):9.2e}  {ms:8.1f}")
-    print()
+# rmse and the wall clock time of one batched call over all points, and the
+# estimates of that call. the truths belong to the first len(truths) points,
+# the error is over those, the time is for all of them. after one call to warm
+# up (gpu kernels, cached nodes), the call is repeated `repeats` times and the
+# time is the median. the estimators return arrays on the cpu, so the gpu has
+# finished when the clock stops
+def timed_rmse(estimator, w, points, truths, repeats=3, **kwargs):
+    estimator(w, points, **kwargs)
+    times = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        estimates = estimator(w, points, **kwargs)
+        times.append(time.perf_counter() - t0)
+        if len(times) == 1:
+            first = estimates
+            error = float(np.sqrt(np.mean(np.square(estimates[:len(truths)] - truths))))
+    return error, float(np.median(times)), first

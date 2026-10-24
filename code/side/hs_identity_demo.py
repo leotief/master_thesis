@@ -9,7 +9,7 @@
 #   e^{-t^2 / 2} = E[e^{-i u t}] = E[cos(t u)],  u ~ N(0, 1)
 # (the sin parts cancel, N(0, 1) is symmetric), so everything here uses
 # N(0, 1). the expectation is approximated by picking a few points u_j with
-# weights w_j (random samples or a quadrature rule from utils/hs_quadrature.py):
+# weights w_j (random samples or a quadrature rule from utils/quadrature.py):
 #   1. pick points u_j on N(0, 1), with weights w_j
 #   2. every point gives a wave cos(t u_j) in t. points far out give fast waves
 #   3. the weighted sum of the waves approximates the bell e^{-t^2 / 2}: near
@@ -37,7 +37,7 @@ from functools import lru_cache
 import matplotlib.pyplot as plt
 import numpy as np
 
-from utils.hs_quadrature import hs_quadrature
+from utils.quadrature import hs_quadrature
 from utils.plots import (blues, plot_error_vs_nodes,
                          plot_function_and_error, plot_hs_identity_steps,
                          plot_nodes_on_density)
@@ -48,7 +48,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ── config ────────────────────────────────────────────────────────────────────
 
 # method -> label, colour, linestyle. "mc" draws random N(0, 1) samples, the
-# others are the rules from utils/hs_quadrature.py. colours from the palette in
+# others are the rules from utils/quadrature.py. colours from the palette in
 # utils/plots.py (see code/PLOTTING.md), the method we use (Gauss-Hermite) in
 # the accent colour
 METHODS = {
