@@ -385,10 +385,13 @@ def plot_hs_identity_steps(u, density, nodes, weights, t, waves, exact, out_path
     plt.close(fig)
 
 
-# ── pcpg step by step (pcpg_demo.py) ──────────────────────────────────────────
+# ── pcpg step by step (estimate_overview_demo.py) ─────────────────────────────
 
 # what pcpg does, one row per step, with explanations below (texts, a dict):
-#   goal     the area under sigmoid(z) x p(z)
+#   setup    the classifier sigmoid(w^T x), the density model p(x), and a point
+#            with a missing feature: a line of possible points
+#   goal     its prediction, the average of sigmoid along the line: the area
+#            under sigmoid(z) x p(z)
 #   step 1   pg: sums of bells adding up to sigmoid(z), and where the bells
 #            come from (the chosen widths)
 #   step 2   hs: sums of waves adding up to a bell, and where the waves come
@@ -396,10 +399,10 @@ def plot_hs_identity_steps(u, density, nodes, weights, t, waves, exact, out_path
 #   step 3   the area under a wave, and for every wave from the model's cf
 #   step 4   partial sums of waves and their areas x p(z) building up a bell
 #   step 5   partial sums of bells and their areas x p(z) building up the goal
-# every area is at true scale. d is a dict, see plot_step_by_step in
-# pcpg_demo.py
+# every area is at true scale. d is a dict, see step_by_step in
+# estimate_overview_demo.py
 #
-# both step-by-step figures (this one and the gmm one) have a pastel look
+# the step-by-step figures (this one, the gmm and the mc one) have a pastel look
 # (catppuccin) with three colour families, each with one role in every panel:
 # gold for sigmoid(z) and the goal area, indigo for the pieces that add up to
 # the goal (the bells, the components; the followed one dark), coral for
@@ -545,7 +548,7 @@ def _headings(fig, rows, title=None):
 def _first_two_and_all(seq):
     return [seq[0], seq[1], seq[-1]]
 
-# the goal panel, the same in both figures
+# the goal panel of the pcpg figure: the area under sigmoid(z) x p(z)
 def _goal_panel(ax, z, pz, sigma, answer, title=r"The area under $\sigma(z) \times p(z)$", fontsize=15):
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$: area 1")
     ax.plot(z, sigma * pz.max(), color=_LINE["gold"], lw=1.6, ls=(0, (4, 2)), label=r"$\sigma(z)$ (scaled)")
@@ -556,22 +559,22 @@ def _goal_panel(ax, z, pz, sigma, answer, title=r"The area under $\sigma(z) \tim
     _finish(ax, title, room=0.6, fontsize=fontsize)
 
 def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
-    z, pz = d["z"], d["pz"]
+    z, pz, window = d["z"], d["pz"], d["window"]
     sigma = 1 / (1 + np.exp(-z))
     by_weight = d["by_weight"]
     n_waves, n_bells = len(d["waves"]), len(d["bells"])
     plural = lambda k, unit, n: f"all {unit}s" if k == n else f"{k} {unit}{'s' if k > 1 else ''}"
 
-    # 6 columns: the goal over the middle 4, the other rows two panels of 3 or
-    # three panels of 2
-    fig = plt.figure(figsize=(16, 50))
-    grid = fig.add_gridspec(6, 6, height_ratios=[1, 1, 1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
-    ax_goal = fig.add_subplot(grid[0, 1:5])
-    ax_pg, ax_pg_origin = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
-    ax_hs, ax_hs_origin = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
-    ax_wave, ax_cf = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
-    ax_waves = [fig.add_subplot(grid[4, c:c + 2]) for c in (0, 2, 4)]
-    ax_bells = [fig.add_subplot(grid[5, c:c + 2]) for c in (0, 2, 4)]
+    # 6 columns: the setup and the goal over the middle 4, the other rows two
+    # panels of 3 or three panels of 2
+    fig = plt.figure(figsize=(16, 61))
+    grid = fig.add_gridspec(7, 6, height_ratios=[1.2, 1, 1, 1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
+    ax_space, ax_goal = fig.add_subplot(grid[0, 1:5]), fig.add_subplot(grid[1, 1:5])
+    ax_pg, ax_pg_origin = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
+    ax_hs, ax_hs_origin = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
+    ax_wave, ax_cf = fig.add_subplot(grid[4, 0:3]), fig.add_subplot(grid[4, 3:6])
+    ax_waves = [fig.add_subplot(grid[5, c:c + 2]) for c in (0, 2, 4)]
+    ax_bells = [fig.add_subplot(grid[6, c:c + 2]) for c in (0, 2, 4)]
     for ax in ax_waves[1:]:
         ax.sharey(ax_waves[0])
     for ax in ax_bells[1:]:
@@ -587,14 +590,23 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
         ax.fill_between(z, part * pz, color=_FILL[family], alpha=0.75, lw=0,
                         label=rf"sum of {unit} $\times\, p(z)$")
         ax.plot(z, part * pz, color=_LINE[family], lw=0.8)
+        # the outline of the target area on top, so it stays visible where
+        # the sum covers it
+        ax.plot(z, target * pz, color=_tone(target_family, 1.25), lw=1.6, zorder=3)
         _dashed(ax, z, target * scale, target_family, label=f"{target_name} (scaled)")
         ax.plot(z, part * scale, color=_LINE[family], lw=2, label=f"sum of {unit} (scaled)")
-        ax.set_xlim(-9, 10)
+        ax.set_xlim(*window)
         # shared y axis, so the legend room only once
         _finish(ax, title, room=0.6 if first else 0, legend=first)
 
-    # ── goal ──
+    # ── setup: the classifier, the density model and the point with a
+    # missing feature, in feature space ──
+    _point_space(ax_space, d)
+    _side_legend(ax_space)
+
+    # ── goal: the prediction of the point, the area under sigma(z) x p(z) ──
     _goal_panel(ax_goal, z, pz, sigma, d["answer"], texts["goal_title"])
+    ax_goal.set_xlim(*window)
 
     # ── steps 1 and 2: the sums (only curves), then where the pieces come from ──
     ax = ax_pg
@@ -643,7 +655,7 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
         ax.fill_between(z, d["cosines"][i] * pz, color=_FILL[family], alpha=0.85, lw=0,
                         label=rf"{name} wave, $u = {d['u_pairs'][i]:.2f}$: area ${d['wave_avgs'][i]:+.3f}$")
         ax.plot(z, d["cosines"][i] * pz, color=_LINE[family], lw=1.2)
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     ax.set_ylim(-1.15 * pz.max(), 1.25 * pz.max())
     _finish(ax, r"The area under wave $\times\, p(z)$", room=0.45)
 
@@ -678,13 +690,16 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
                  f"{d['bell_parts'][by_weight[:k]].sum():.4f}{extra}",
                  ax is ax_bells[0])
 
+    # the setup panel is square, so its explanation as wide as the goal's
+    _caption(fig, ax_space, texts["setup"], x0=ax_goal.get_position().x0, x1=ax_goal.get_position().x1)
     _caption(fig, ax_goal, texts["goal"])
     _row_caption(fig, [ax_pg, ax_pg_origin], texts["pg"], texts["pg_origin"])
     _row_caption(fig, [ax_hs, ax_hs_origin], texts["hs"], texts["hs_origin"])
     _row_caption(fig, [ax_wave, ax_cf], texts["wave_area"], texts["cf"])
     _row_caption(fig, ax_waves, texts["waves"])
     _row_caption(fig, ax_bells, texts["bells"])
-    rows = [("Goal", texts["goal_heading"], [ax_goal]),
+    rows = [("Setup", "A point with a missing feature", [ax_space]),
+            ("Goal", texts["goal_heading"], [ax_goal]),
             ("Step 1", r"$\sigma(z)$ is a sum of bells", [ax_pg, ax_pg_origin]),
             ("Step 2", "Every bell is a sum of waves", [ax_hs, ax_hs_origin]),
             ("Step 3", "The area under a wave comes from the model", [ax_wave, ax_cf]),
@@ -696,7 +711,94 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
     plt.close(fig)
 
 
-# ── pcpg figures for the thesis (pcpg_demo.py) ───────────────────────────────
+# ── the 2d toy problem (utils/toy.py) ─────────────────────────────────────────
+
+# the feature space panels of the step-by-step figures (estimate_overview_demo.py
+# and train_demo.py): label 1 is butter yellow like sigma, which is its
+# probability, label 0 slate; the prediction sigma(w^T x) is a white to butter
+# background; p(x) grey
+
+_LABEL_COLORS = (_CAT["text"], _DEEP["gold"])
+_PREDICTION_MAP = matplotlib.colors.LinearSegmentedColormap.from_list("prediction", ["white", _PASTEL["gold"]])
+
+# a bold title, for panels where _finish does not fit
+def _panel_title(ax, title):
+    ax.set_title(_bold(title), fontsize=15, pad=10, color=_CAT["text"])
+
+# a legend to the right of a panel, where it covers nothing
+def _side_legend(ax):
+    ax.legend(loc="upper left", bbox_to_anchor=(1.03, 1), fontsize=11, borderaxespad=0)
+
+# the boundary w^T x = 0, a line through the origin
+def _boundary(ax, w, **kwargs):
+    direction = np.array([-w[1], w[0]]) / np.linalg.norm(w)
+    t = np.array([-30, 30])
+    ax.plot(t * direction[0], t * direction[1], **kwargs)
+
+# the prediction sigma(w^T x) as the background of a feature space panel
+def _prediction_background(ax, w, d):
+    lim1, lim2 = (d["G1"][0], d["G1"][-1]), (d["G2"][0], d["G2"][-1])
+    X1, X2 = np.meshgrid(np.linspace(*lim1, 200), np.linspace(*lim2, 200))
+    ax.imshow(1 / (1 + np.exp(-(w[0] * X1 + w[1] * X2))), extent=(*lim1, *lim2), origin="lower",
+              cmap=_PREDICTION_MAP, vmin=0, vmax=1, aspect="auto", zorder=0)
+
+# the training points: complete ones as dots, incomplete ones as faint lines
+def _training_points(ax, d, alpha=1.0, lines=True, label=True):
+    xm, y = d["x_missing"], d["y"]
+    complete = ~np.isnan(xm).any(axis=1)
+    if lines:
+        for i in np.flatnonzero(~complete):
+            color = _LABEL_COLORS[int(y[i])]
+            if np.isnan(xm[i, 1]):
+                ax.axvline(xm[i, 0], color=color, lw=0.6, alpha=0.06, zorder=1)
+            else:
+                ax.axhline(xm[i, 1], color=color, lw=0.6, alpha=0.06, zorder=1)
+    for value in (0, 1):
+        keep = complete & (y == value)
+        ax.plot(d["x"][keep, 0], d["x"][keep, 1], "o", color=_LABEL_COLORS[value], ms=4, alpha=0.75 * alpha,
+                mec="none", zorder=2, label=f"label {value}" if label else None)
+
+def _feature_axes(ax, d):
+    ax.set_xlim(d["G1"][0], d["G1"][-1])
+    ax.set_ylim(d["G2"][0], d["G2"][-1])
+    ax.set_aspect("equal")
+    ax.set_xlabel("feature $x_1$", fontsize=12)
+    ax.set_ylabel("feature $x_2$", fontsize=12)
+
+# the followed point's line, and the density along it as bumps to the right
+def _followed_line(ax, d, label=True):
+    x1, X2, dens = d["x1"], d["X2"], d["line_density"]
+    ax.axvline(x1, color=_LABEL_COLORS[int(d["y"][d["point"]])], lw=2.5, zorder=3,
+               label=r"a point with $x_2$ missing" if label else None)
+    scale = 0.2 * (d["G1"][-1] - d["G1"][0]) / dens.max()
+    ax.fill_betweenx(X2, x1, x1 + scale * dens, color=_CAT["overlay"], alpha=0.5, lw=0, zorder=3,
+                     label=r"$p(x_2 \mid x_1)$ on its line" if label else None)
+    ax.plot(x1 + scale * dens, X2, color=_CAT["subtext"], lw=1.2, zorder=3)
+
+# the concept of the step-by-step figures in feature space, without the
+# training points: the prediction sigma(w*^T x) as the background, the boundary,
+# the density model p(x) as grey contours, and the followed point as its line
+# with p(x2 | x1) on it
+def _point_space(ax, d):
+    _prediction_background(ax, d["w_star"], d)
+    ax.contour(d["G1"], d["G2"], d["density"], levels=6, colors=[_CAT["overlay"]], linewidths=0.9, zorder=1)
+    ax.plot([], [], color=_CAT["overlay"], lw=0.9, label="density model $p(x)$")
+    ax.fill_between([], [], color=_PASTEL["gold"], label=r"classifier $\sigma(w^\top x)$")
+    _boundary(ax, d["w_star"], color=_DEEP["gold"], lw=1.5, ls=(0, (5, 3)), zorder=2, label="its boundary")
+    _followed_line(ax, d)
+    _feature_axes(ax, d)
+
+# the panels along the followed point's line: p(x2 | x1) grey (scaled to a
+# height of 1), sigma along it dashed yellow
+def _along_line(ax, d, sigma=True):
+    X2, dens = d["X2"], d["line_density"]
+    ax.fill_between(X2, dens / dens.max(), color=_CAT["grey"], lw=0, label=r"$p(x_2 \mid x_1)$ (scaled)")
+    if sigma:
+        _dashed(ax, X2, d["line_sigmoid"], "gold", label=r"$\sigma(w^\top x)$ on the line")
+    ax.set_xlim(X2[0], X2[-1])
+
+
+# ── pcpg figures for the thesis (estimate_overview_demo.py) ──────────────────
 
 # the thesis figures in the colours of the step-by-step figure, at the thesis
 # sizes: the sums of bells and waves as in its steps 1 and 2, the slow and fast
@@ -800,14 +902,14 @@ def plot_thesis_summary(d, out_path):
     plt.close(fig)
 
 
-# ── gmm gauss-hermite step by step (gmm_gh_demo.py) ──────────────────────────
+# ── gmm gauss-hermite step by step (estimate_overview_demo.py) ───────────────
 
 def plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     with plt.rc_context(_BIG_STYLE):
         _plot_gmm_gh_step_by_step(d, texts, out_path, title)
 
 def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
-    z, pz, mix, j = d["z"], d["pz"], d["mix"], d["j"]
+    z, pz, mix, j, window = d["z"], d["pz"], d["mix"], d["j"], d["window"]
     sigma = 1 / (1 + np.exp(-z))
     order, n_comp, n_nodes = d["order"], len(d["mix"]), len(d["nodes"])
     # the components in blue, the followed one (largest weight) dark, the others
@@ -816,13 +918,12 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     comp_fill = dict(zip(order, [_tone("indigo", 1.25)] + _tones("indigo", n_comp - 1, lo=0.3, hi=0.75)))
 
     # 6 columns, as in the pcpg figure
-    fig = plt.figure(figsize=(16, 42))
-    grid = fig.add_gridspec(5, 6, height_ratios=[1, 1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
-    ax_goal = fig.add_subplot(grid[0, 1:5])
-    ax_mix, ax_split = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
-    ax_nodes, ax_origin = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
-    ax_polys = [fig.add_subplot(grid[3, c:c + 2]) for c in (0, 2, 4)]
-    ax_sums = [fig.add_subplot(grid[4, c:c + 2]) for c in (0, 2, 4)]
+    fig = plt.figure(figsize=(16, 34))
+    grid = fig.add_gridspec(4, 6, height_ratios=[1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
+    ax_mix, ax_split = fig.add_subplot(grid[0, 0:3]), fig.add_subplot(grid[0, 3:6])
+    ax_nodes, ax_origin = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
+    ax_polys = [fig.add_subplot(grid[2, c:c + 2]) for c in (0, 2, 4)]
+    ax_sums = [fig.add_subplot(grid[3, c:c + 2]) for c in (0, 2, 4)]
     for ax in ax_polys[1:]:
         ax.sharey(ax_polys[0])
     for ax in ax_sums[1:]:
@@ -840,23 +941,20 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
             ax.plot(z, top, color="white", lw=0.8)
             base = top
 
-    # ── goal ──
-    _goal_panel(ax_goal, z, pz, sigma, d["answer"])
-
     # ── step 1: the mixture, and the area split by component ──
     ax = ax_mix
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$")
     for k in order:
         ax.plot(z, d["components"][k], color=comp_line[k], lw=2.2,
                 label=rf"$\pi_{k + 1} \, \mathcal{{N}}(m_{k + 1}, v_{k + 1})$, $\pi_{k + 1} = {mix[k]:.3f}$")
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     _finish(ax, r"$p(z)$ as a sum of Gaussians", room=0.6)
 
     ax = ax_split
     stack(ax, order, labels=True)
     ax.plot(z, sigma * pz, color=_LINE["gold"], lw=1.8,
             label=rf"$\sigma(z) \times p(z)$: area {d['answer']:.4f}")
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     _finish(ax, "The area as a sum of component areas", room=0.6)
 
     # ── step 2: the points of the followed component, and where they come from ──
@@ -871,7 +969,7 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
               label=r"points $z_i$ (height = weight $h_i / \sqrt{\pi}$, scaled)")
     ax.plot(d["nodes"], d["sigma_nodes"], "o", color=_LINE["coral"], ms=8, zorder=3,
             label=rf"$\sigma(z_i)$: weighted sum {d['comp_gh'][j]:.4f} (exact {d['comp_exact'][j]:.4f})")
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     _finish(ax, r"The component's area from $\sigma$ at a few points", room=0.6)
 
     ax = ax_origin
@@ -913,19 +1011,17 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
         ax.fill_between([], [], color=comp_fill[order[0]], lw=0, label=r"$\sigma(z) \times$ the followed component")
         ax.fill_between([], [], color=comp_fill[order[1]], lw=0, label=r"$\sigma(z) \times$ the other components")
         ax.plot(z, sigma * pz, color=_LINE["gold"], lw=1.4)
-        ax.set_xlim(-9, 10)
+        ax.set_xlim(*window)
         total = mix[part] @ d["comp_gh"][part]
         extra = rf"  (exact {d['answer']:.4f})" if i == n_comp - 1 else ""
         _finish(ax, f"{_count(i + 1, n_comp, 'component').capitalize()}: area {total:.4f}{extra}",
                 room=0.6 if first else 0, legend=first)
 
-    _caption(fig, ax_goal, texts["goal"])
     _row_caption(fig, [ax_mix, ax_split], texts["mix"], texts["split"])
     _row_caption(fig, [ax_nodes, ax_origin], texts["nodes"], texts["origin"])
     _row_caption(fig, ax_polys, texts["polys"])
     _row_caption(fig, ax_sums, texts["sums"])
-    rows = [("Goal", "What we want to compute", [ax_goal]),
-            ("Step 1", r"$p(z)$ is a mixture of Gaussians, so the area splits by component", [ax_mix, ax_split]),
+    rows = [("Step 1", r"$p(z)$ is a mixture of Gaussians, so the area splits by component", [ax_mix, ax_split]),
             ("Step 2", r"The area of a component is a weighted sum of $\sigma$ at a few points",
              [ax_nodes, ax_origin]),
             ("Step 3", r"Why it works: the sum is the area under a polynomial through $\sigma$", ax_polys),
@@ -936,14 +1032,14 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     plt.close(fig)
 
 
-# ── monte carlo step by step (mc_demo.py) ────────────────────────────────────
+# ── monte carlo step by step (estimate_overview_demo.py) ─────────────────────
 
 def plot_mc_step_by_step(d, texts, out_path, title=None):
     with plt.rc_context(_BIG_STYLE):
         _plot_mc_step_by_step(d, texts, out_path, title)
 
 def _plot_mc_step_by_step(d, texts, out_path, title=None):
-    z, pz, mix = d["z"], d["pz"], d["mix"]
+    z, pz, mix, window = d["z"], d["pz"], d["mix"], d["window"]
     sigma = 1 / (1 + np.exp(-z))
     order, n_comp, n_show = d["order"], len(d["mix"]), d["n_show"]
     # the components in blue as in the gmm figure, the one with the largest
@@ -951,42 +1047,43 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
     comp_line = dict(zip(order, [_LINE["indigo"]] + _tones("indigo", n_comp - 1, lo=0.6, hi=1.2)))
 
     # 6 columns, as in the pcpg figure
-    fig = plt.figure(figsize=(16, 42))
-    grid = fig.add_gridspec(5, 6, height_ratios=[1, 1, 1, 0.9, 1], hspace=1.95, wspace=0.6)
-    ax_goal = fig.add_subplot(grid[0, 1:5])
-    ax_draw, ax_scores = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
-    ax_predict, ax_average = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
-    ax_hists = [fig.add_subplot(grid[3, c:c + 2]) for c in (0, 2, 4)]
-    ax_runs, ax_rate = fig.add_subplot(grid[4, 0:3]), fig.add_subplot(grid[4, 3:6])
+    fig = plt.figure(figsize=(16, 34))
+    grid = fig.add_gridspec(4, 6, height_ratios=[1, 1, 0.9, 1], hspace=1.95, wspace=0.6)
+    ax_draw, ax_scores = fig.add_subplot(grid[0, 0:3]), fig.add_subplot(grid[0, 3:6])
+    ax_predict, ax_average = fig.add_subplot(grid[1, 0:3]), fig.add_subplot(grid[1, 3:6])
+    ax_hists = [fig.add_subplot(grid[2, c:c + 2]) for c in (0, 2, 4)]
+    ax_runs, ax_rate = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
     for ax in ax_hists[1:]:
         ax.sharey(ax_hists[0])
 
-    # ── goal ──
-    _goal_panel(ax_goal, z, pz, sigma, d["answer"])
-
-    # ── step 1: fill-ins of the missing features, and their scores ──
+    # ── step 1: fill-ins of the missing feature on the line of the point, and
+    # their scores ──
     ax = ax_draw
+    ax.contour(d["G1"], d["G2"], d["density"], levels=6, colors=[_CAT["surface"]], linewidths=0.8, zorder=1)
+    ax.axvline(d["x1"], color=_LABEL_COLORS[int(d["y"][d["point"]])], lw=1.5, zorder=2)
+    # spread sideways, so that the dots on the line can be seen
+    spread = np.random.default_rng(0).uniform(-0.12, 0.12, len(d["k"]))
+    t = np.linspace(0, 2 * np.pi, 200)
     for k in order[::-1]:
         sel = d["k"] == k
-        ax.plot(*d["x_mis"][sel].T, "o", color=comp_line[k], ms=3, alpha=0.55, mec="none",
-                label=rf"component {k + 1}, $\pi_{k + 1} = {mix[k]:.3f}$")
-        t = np.linspace(0, 2 * np.pi, 200)
-        ax.plot(d["means"][k, 0] + 2 * d["stds"][k, 0] * np.cos(t),
-                d["means"][k, 1] + 2 * d["stds"][k, 1] * np.sin(t), color=comp_line[k], lw=2)
+        ax.plot(d["x1"] + spread[sel], d["x_mis"][sel], "o", color=comp_line[k], ms=3, alpha=0.55, mec="none",
+                zorder=3, label=rf"$\pi_{k + 1} = {mix[k]:.3f}$")
+        ax.plot(d["comp_means"][k, 0] + 2 * d["comp_stds"][k, 0] * np.cos(t),
+                d["comp_means"][k, 1] + 2 * d["comp_stds"][k, 1] * np.sin(t), color=comp_line[k], lw=2, zorder=3)
+    _feature_axes(ax, d)
     # the legend from the top component down
     handles, labels = ax.get_legend_handles_labels()
-    ax.set_ylabel(rf"missing feature $x_{{{d['feats'][1] + 1}}}$", fontsize=12)
-    _finish(ax, r"Fill-ins $x_{\mathrm{mis}}^{(i)}$ drawn from the model",
-            xlabel=rf"missing feature $x_{{{d['feats'][0] + 1}}}$", room=0.85, legend=False)
-    ax.legend(handles[::-1], labels[::-1], loc="upper left", markerscale=2.5)
+    ax.legend(handles[::-1], labels[::-1], title="component weight", loc="upper left", bbox_to_anchor=(1.03, 1),
+              fontsize=11, title_fontsize=11, borderaxespad=0, markerscale=2.5)
+    _panel_title(ax, r"Fill-ins $x_{\mathrm{mis}}^{(i)}$ drawn from the model")
 
     ax = ax_scores
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$")
-    ax.hist(d["z_samples"], bins=60, range=(z[0], z[-1]), density=True, histtype="step",
+    ax.hist(d["z_samples"], bins=50, range=window, density=True, histtype="step",
             color=_LINE["indigo"], lw=2, label=rf"histogram of {len(d['z_samples'])} scores $z_i$")
     ax.plot(d["z_samples"][:200], np.full(200, -0.03 * pz.max()), "|", color=_LINE["indigo"],
             ms=10, alpha=0.5)
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     _finish(ax, r"Their scores $z_i = w^\top x^{(i)}$ are samples of $p(z)$", room=0.45)
 
     # ── step 2: the prediction at every sample, and their average ──
@@ -998,7 +1095,7 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
     ax.vlines(zs, 0, preds, color=_FILL["indigo"], lw=1.5)
     ax.plot(zs, preds, "o", color=_LINE["indigo"], ms=7, zorder=5,
             label=rf"predictions $\sigma(z_i)$ of {n_show} samples")
-    ax.set_xlim(z[0], z[-1])
+    ax.set_xlim(*window)
     _finish(ax, r"The prediction $\sigma(z_i)$ for every sample", room=0.4)
 
     ax = ax_average
@@ -1014,7 +1111,7 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
     _finish(ax, "The estimate is their average", xlabel="sample $i$", room=0.4)
 
     # ── step 3: the average is the area under sigma x the histogram ──
-    edges = np.linspace(-9, 10, 39)
+    edges = np.linspace(*window, 39)
     width = edges[1] - edges[0]
     for ax, n in zip(ax_hists, d["sample_ks"]):
         first = ax is ax_hists[0]
@@ -1061,13 +1158,11 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
     ax.set_xlabel("samples $n$", fontsize=12)
     ax.legend(loc="lower left")
 
-    _caption(fig, ax_goal, texts["goal"])
     _row_caption(fig, [ax_draw, ax_scores], texts["draw"], texts["scores"])
     _row_caption(fig, [ax_predict, ax_average], texts["predict"], texts["average"])
     _row_caption(fig, ax_hists, texts["hists"])
     _row_caption(fig, [ax_runs, ax_rate], texts["runs"], texts["rate"])
-    rows = [("Goal", "What we want to compute", [ax_goal]),
-            ("Step 1", "Fill in the missing features at random, from the model", [ax_draw, ax_scores]),
+    rows = [("Step 1", "Fill in the missing feature at random, from the model", [ax_draw, ax_scores]),
             ("Step 2", "Predict for every fill-in and average", [ax_predict, ax_average]),
             ("Step 3", r"The average is an area under $\sigma(z) \times$ a histogram", ax_hists),
             ("Step 4", "The estimate is random, its error shrinks slowly", [ax_runs, ax_rate])]
@@ -1197,19 +1292,17 @@ def plot_train_features(features, rates, results, ylabel, log, target, out_path)
 
 # ── training step by step (train_demo.py) ────────────────────────────────────
 
-# how a logistic regression is trained when features are missing, on a 2d toy
-# problem, with pcpg and mc side by side where they differ (see
-# train_demo.py). label 1 is butter yellow like sigma, which is its
-# probability, label 0 slate; the prediction sigma(w^T x) is a white to butter
-# background; p(x) grey; the exact values a butter band; pcpg indigo, mc coral.
-# d is a dict, see train_demo.py
+# how a logistic regression is trained when features are missing, on the 2d
+# toy problem (see train_demo.py). the setup, the goal (the lowest point of the
+# loss over w), then one training step at the current w (predict every point,
+# the loss), changing w and repeating, and where training ends. pcpg and mc
+# side by side where they differ. the exact values a butter band, pcpg indigo,
+# mc coral, the current w slate. d is a dict, see train_demo.py
 
 def plot_training_step_by_step(d, out_path):
     with plt.rc_context(_BIG_STYLE):
         _plot_training_step_by_step(d, _training_texts(d), out_path)
 
-_LABEL_COLORS = (_CAT["text"], _DEEP["gold"])
-_PREDICTION_MAP = matplotlib.colors.LinearSegmentedColormap.from_list("prediction", ["white", _PASTEL["gold"]])
 # the trained classifiers, in the colours of the experiment figures: exact a
 # butter band, pcpg indigo, mc with few samples light coral, with as many as
 # pcpg has nodes deep coral, complete data dotted slate, mean imputation dashed grey
@@ -1217,282 +1310,193 @@ _MC_FEW, _MC_SAME = _tone("coral", 1.0), _DEEP["coral"]
 _COMPLETE = dict(color=_CAT["text"], lw=1.8, ls=(0, (1, 1.5)))
 _MEAN = dict(color=_CAT["overlay"], lw=1.8, ls=(0, (4, 2)))
 
-# a bold title, for panels where _finish does not fit
-def _panel_title(ax, title):
-    ax.set_title(_bold(title), fontsize=15, pad=10, color=_CAT["text"])
-
-# a legend to the right of a panel, where it covers nothing
-def _side_legend(ax):
-    ax.legend(loc="upper left", bbox_to_anchor=(1.03, 1), fontsize=11, borderaxespad=0)
-
 def _training_texts(d):
     norm = np.linalg.norm
     angle = lambda w: np.degrees(np.arctan2(w[1], w[0]))
-    mean_prediction = 1 / (1 + np.exp(-(d["w_star"] @ np.array([d["x1"], d["mean_x2"]]))))
-    values = 1 / (1 + np.exp(-(d["w_star"][0] * d["x1"] + d["w_star"][1] * d["samples"])))
-    t_mc = d["t"][np.argmin(d["loss_mc"])]
+    k, y = d["step_epoch"], d["label"]
+    right = lambda p: p if y == 1 else 1 - p
+    mc = right(d["prediction_now_mc"])
     return dict(
-        h0="Training points with a missing feature",
+        h_setup="Training points with a missing feature",
         setup=(rf"{d['n_points']} training points with two features, yellow label 1, slate label 0. "
-               rf"{d['n_incomplete']} of them miss one feature: they are lines, because the missing coordinate "
-               r"could be anywhere on them. First, a density model $p(x)$ (four Gaussians) is fit on these points, "
-               r"its likelihood leaves the missing features out. Then the logistic regression "
-               r"$\sigma(w^\top{}x)$ is trained: a boundary through the origin, its direction and steepness set by $w$."),
-        h1="An incomplete point is a line of possible points",
-        step1=(r"The density model says where on its line an incomplete point probably is (grey, here two bumps). "
-               r"Its prediction is the average of $\sigma(w^\top{}x)$ along the line, weighted by "
-               rf"$p(x_2\mid{{}}x_1)$: the yellow area, {d['answer']:.3f}. Mean imputation takes one point instead, "
-               rf"the mean of $x_2$ (white dot), and gets {mean_prediction:.3f}."),
-        h2="Two ways to compute the average",
-        pcpg=(r"PCPG replaces $\sigma$ by a sum of bells (indigo, with more bells closer to $\sigma$). The average "
-              r"of every bell along the line is known exactly from the characteristic function of the density "
-              r"model (see the PCPG step by step), so the area is added up from the bells, without trying any point "
-              rf"on the line: {d['answer_pcpg']:.3f}."),
-        mc=(rf"MC draws {d['mc_few']} random positions on the line from the density model (coral) and averages "
-            rf"$\sigma$ at them: {values.mean():.3f}. Other positions give another average, the result is random."),
-        h3=r"Training changes $w$, and with it the prediction",
-        sigma_t=(r"Training changes $w$ step by step. Here $w$ grows along a straight line from $w=0$ to the trained "
-                 r"$w^*$, $w=t\,w^*$: the longer $w$, the steeper $\sigma$ along the line, and the area, the "
-                 r"prediction, changes."),
-        curve_t=(r"The prediction of the point as a function of $t$. Training needs it, and its derivative, for every "
-                 r"$w$ it visits. PCPG's prediction (indigo) is the exact one (yellow), a smooth function of $w$. "
-                 rf"MC's ({d['mc_few']} samples, new ones at every $t$, three runs) jumps around it."),
-        h4="From the prediction to the loss",
-        point_loss=(rf"The loss of the point is $-\log$ of its prediction of its label, here $y={d['label']}$. MC's loss "
-                    r"is just as noisy (thin), and on average (dashed) too high: $-\log$ of a noisy prediction is too "
-                    r"large on average (Jensen), the more the noisier the prediction."),
-        loss=(r"Summed over all points, the loss of training. PCPG's is the exact one, with its minimum at the "
-              rf"optimum $w^*$ ($t=1$). MC's is too high on average, more so for a longer $w$, so its minimum lies at "
-              rf"$t={t_mc:.2f}$."),
-        h5="Training walks downhill",
-        landscape=(r"With two features, $w$ is a point in a plane: grey the loss, lowest at $w^*$ (star). The dot and "
-                   r"the diamond are the classifiers on complete data and with mean imputation. Training starts at "
-                   r"$w=0$ and walks downhill: PCPG the same path as exact training, to $w^*$; MC with "
-                   rf"{d['mc_few']} samples to the minimum of its own loss (cross), with {d['mc_same']} samples near $w^*$."),
-        gaps=(r"The loss during training, minus its minimum: PCPG goes down like exact training, MC with "
-              rf"{d['mc_few']} samples stops far above, with {d['mc_same']} samples it gets close."),
-        h6="Where training ends",
-        step6=(r"The boundaries in the data: PCPG ends on the exact boundary, close to complete data, which saw all "
-               rf"features. Mean imputation is turned by {abs(angle(d['w_mean']) - angle(d['w_star'])):.0f}$^\circ$ "
-               r"towards the axis: the filled-in means lose how the two features go together. Across the boundary "
-               r"the prediction rises the faster, the longer $w$ is: "
-               rf"$\|w\|={norm(d['path_pcpg'][-1]):.2f}$ for PCPG, {norm(d['w_complete']):.2f} for complete data, "
-               rf"{norm(d['paths_mc'][0][-1]):.2f} for MC with {d['mc_few']} samples (too unsure) and "
-               rf"{norm(d['w_mean']):.2f} for mean imputation."),
+               rf"{d['n_incomplete']} of them miss one feature. They are drawn as lines, because the missing value "
+               r"could be anywhere on them. A density model $p(x)$ (grey contours) is fit on the points first and "
+               r"then kept fixed. The classifier to train is a logistic regression $\sigma(w^\top{}x)$, the "
+               r"probability of label 1, with a boundary through the origin. Its direction and steepness are set "
+               r"by $w$, which training has to find."),
+        h_goal=r"Find the $w$ with the smallest loss $L(w)=\frac{1}{n}\sum_i-\log{}p(y_i\mid{}x_i^o)$",
+        goal=(r"With two features, every $w$ is a point in this plane, and every point is a classifier. The loss "
+              r"$L(w)$ says how badly that classifier predicts the training points: the average of "
+              r"$-\log{}p(y_i\mid{}x_i^o)$, which is small when every point gets a high probability of its own "
+              r"label. Grey is the loss for every $w$, lowest at $w^*$ (star). Training starts at $w=0$ and has to "
+              r"get to $w^*$. For that it needs the loss, and so the prediction of every point, again and again."),
+        h1=r"Predict every point with the current $w$",
+        predict=(rf"Training goes in steps. Here the current $w$ is the one after {k} steps. Every point gets a "
+                 r"prediction. For a complete point it is just $\sigma(w^\top{}x)$, the colour at the point. "
+                 r"For an incomplete point, like the one followed here (line), it is the average of $\sigma$ "
+                 r"along its line, weighted by the density model $p(x_2\mid{}x_1)$ (grey)."),
+        predict_point=(rf"PCPG computes this average exactly: {d['prediction_now_pcpg']:.3f}. MC tries "
+                       rf"{d['mc_few']} random values of $x_2$ from the density model and averages $\sigma$ at them: "
+                       rf"{d['prediction_now_mc']:.3f}. Other random values would give a different number."),
+        h2="Measure how wrong the predictions are: the loss",
+        point_loss=(rf"The followed point has label {y}, so what counts is its probability of label {y}: "
+                    rf"{right(d['prediction_now_pcpg']):.3f}. Its loss is $-\log$ of that: small when the "
+                    r"probability is close to 1, large when it is close to 0. "
+                    rf"With MC's estimate {mc:.3f} the loss would be {-np.log(mc):.3f}."),
+        all_losses=(rf"The losses of all {d['n_points']} points at the current $w$. Their average is the loss "
+                    rf"$L(w)={d['loss_now']:.3f}$. Training wants to make it smaller."),
+        h3=r"Change $w$ a little to lower the loss, and repeat",
+        landscape=(r"Training then changes $w$ a little in the direction that lowers the loss, and starts again "
+                   r"with step 1 at the new $w$, again and again from $w=0$ (dots: every "
+                   rf"{d['dot_every']} steps, ring: the $w$ of steps 1 and 2). PCPG's predictions are exact, so it "
+                   r"walks the same path as exact training, to $w^*$. MC's are random, and $-\log$ of a random "
+                   r"prediction is too large on average, the more the longer $w$. So MC with "
+                   rf"{d['mc_few']} samples stops early (cross), with {d['mc_same']} samples it gets close."),
+        gaps=(r"The loss during training, minus its lowest value. PCPG keeps going down like exact training, "
+              rf"MC with {d['mc_few']} samples stops far above."),
+        h_result="Where training ends",
+        ends=(r"The boundaries at the end of training. PCPG ends on the exact one (yellow), close to the "
+              r"classifier trained on complete data, which saw all features. MC with "
+              rf"{d['mc_few']} samples ends with a shorter $w$ ($\|w\|={norm(d['paths_mc'][0][-1]):.2f}$ against "
+              rf"{norm(d['path_pcpg'][-1]):.2f}): a similar boundary, but a less sure classifier. Mean imputation, "
+              r"which fills in the average of $x_2$, turns the boundary by "
+              rf"{abs(angle(d['w_mean']) - angle(d['w_star'])):.0f}$^\circ$."),
     )
 
-# the boundary w^T x = 0, a line through the origin
-def _boundary(ax, w, **kwargs):
-    direction = np.array([-w[1], w[0]]) / np.linalg.norm(w)
-    t = np.array([-30, 30])
-    ax.plot(t * direction[0], t * direction[1], **kwargs)
-
-# the prediction sigma(w^T x) as the background of a feature space panel
-def _prediction_background(ax, w, d):
-    lim1, lim2 = (d["G1"][0], d["G1"][-1]), (d["G2"][0], d["G2"][-1])
-    X1, X2 = np.meshgrid(np.linspace(*lim1, 200), np.linspace(*lim2, 200))
-    ax.imshow(1 / (1 + np.exp(-(w[0] * X1 + w[1] * X2))), extent=(*lim1, *lim2), origin="lower",
-              cmap=_PREDICTION_MAP, vmin=0, vmax=1, aspect="auto", zorder=0)
-
-# the training points: complete ones as dots, incomplete ones as faint lines
-def _training_points(ax, d, alpha=1.0, lines=True, label=True):
-    xm, y = d["x_missing"], d["y"]
-    complete = ~np.isnan(xm).any(axis=1)
-    if lines:
-        for i in np.flatnonzero(~complete):
-            color = _LABEL_COLORS[int(y[i])]
-            if np.isnan(xm[i, 1]):
-                ax.axvline(xm[i, 0], color=color, lw=0.6, alpha=0.06, zorder=1)
-            else:
-                ax.axhline(xm[i, 1], color=color, lw=0.6, alpha=0.06, zorder=1)
-    for value in (0, 1):
-        keep = complete & (y == value)
-        ax.plot(d["x"][keep, 0], d["x"][keep, 1], "o", color=_LABEL_COLORS[value], ms=4, alpha=0.75 * alpha,
-                mec="none", zorder=2, label=f"label {value}" if label else None)
-
-def _feature_axes(ax, d):
-    ax.set_xlim(d["G1"][0], d["G1"][-1])
-    ax.set_ylim(d["G2"][0], d["G2"][-1])
-    ax.set_aspect("equal")
-    ax.set_xlabel("feature $x_1$", fontsize=12)
-    ax.set_ylabel("feature $x_2$", fontsize=12)
-
-# the followed point's line, and the density along it as bumps to the right
-def _followed_line(ax, d, label=True):
-    x1, X2, dens = d["x1"], d["X2"], d["line_density"]
-    ax.axvline(x1, color=_LABEL_COLORS[int(d["y"][d["point"]])], lw=2.5, zorder=3,
-               label="an incomplete point" if label else None)
-    scale = 0.2 * (d["G1"][-1] - d["G1"][0]) / dens.max()
-    ax.fill_betweenx(X2, x1, x1 + scale * dens, color=_CAT["overlay"], alpha=0.5, lw=0, zorder=3,
-                     label=r"$p(x_2 \mid x_1)$ on its line" if label else None)
-    ax.plot(x1 + scale * dens, X2, color=_CAT["subtext"], lw=1.2, zorder=3)
-
-# the panels along the followed point's line: p(x2 | x1) grey (scaled to a
-# height of 1), sigma along it dashed yellow
-def _along_line(ax, d, sigma=True):
-    X2, dens = d["X2"], d["line_density"]
-    ax.fill_between(X2, dens / dens.max(), color=_CAT["grey"], lw=0, label=r"$p(x_2 \mid x_1)$ (scaled)")
-    if sigma:
-        _dashed(ax, X2, d["line_sigmoid"], "gold", label=r"$\sigma(w^\top x)$ on the line")
-    ax.set_xlim(X2[0], X2[-1])
-
 def _plot_training_step_by_step(d, texts, out_path):
-    fig = plt.figure(figsize=(16, 64))
-    grid = fig.add_gridspec(7, 6, height_ratios=[1.2, 1.05, 1, 1, 1, 1.2, 1.1], hspace=1.6, wspace=0.75)
-    rows = [(fig.add_subplot(grid[r, 0:3]), fig.add_subplot(grid[r, 3:6])) for r in range(7)]
-    (ax_data, ax_density), (ax_line, ax_average), (ax_pcpg, ax_mc), (ax_sigma, ax_curve), \
-        (ax_point_loss, ax_loss), (ax_land, ax_gap), (ax_boundary, ax_sharp) = rows
+    fig = plt.figure(figsize=(16, 58))
+    grid = fig.add_gridspec(6, 6, height_ratios=[1.2, 1.2, 1.2, 1, 1.2, 1.2], hspace=1.6, wspace=0.75)
+    ax_setup, ax_goal = fig.add_subplot(grid[0, 1:5]), fig.add_subplot(grid[1, 1:5])
+    pairs = [(fig.add_subplot(grid[r, 0:3]), fig.add_subplot(grid[r, 3:6])) for r in (2, 3, 4)]
+    (ax_space, ax_line), (ax_curve, ax_hist), (ax_land, ax_gap) = pairs
+    ax_result = fig.add_subplot(grid[5, 1:5])
     X2, dens = d["X2"], d["line_density"]
-    scaled = dens / dens.max()
+    w_now, y = d["w_now"], d["label"]
+    right = lambda p: p if y == 1 else 1 - p
+    now = dict(color=_CAT["text"], mec="white", mew=1.5, ms=12, zorder=7)
 
-    # ── setup ──
-    ax = ax_data
+    # the loss over w, grey, darker where it is lower
+    def landscape(ax):
+        W1, W2 = np.meshgrid(d["W1"], d["W2"])
+        loss = np.maximum(d["landscape"], 1e-4)
+        levels = np.geomspace(loss.min() * 1.5, loss.max(), 12)
+        fills = matplotlib.colors.LinearSegmentedColormap.from_list("loss", ["white", _CAT["grey"]])
+        ax.contourf(W1, W2, loss, levels=np.concatenate([[loss.min()], levels]), cmap=fills,
+                    norm=matplotlib.colors.LogNorm(), zorder=0)
+        ax.contour(W1, W2, loss, levels=levels, colors=[_CAT["overlay"]], linewidths=0.7, zorder=1)
+
+    # w = 0, w*, the axes of w and its limits
+    def w_axes(ax):
+        ax.plot(0, 0, "o", color="white", mec=_CAT["text"], mew=1.5, ms=9, zorder=7)
+        ax.annotate("$w=0$", (0, 0), xytext=(8, 8), textcoords="offset points", fontsize=12)
+        ax.plot(*d["w_star"], "*", color=_DEEP["gold"], ms=24, zorder=7)
+        ax.annotate("$w^*$", d["w_star"], xytext=(10, -18), textcoords="offset points", fontsize=12)
+        ax.set_xlim(d["W1"][0], d["W1"][-1])
+        ax.set_ylim(d["W2"][0], d["W2"][-1])
+        ax.set_aspect("equal")
+        ax.set_xlabel("$w_1$", fontsize=12)
+        ax.set_ylabel("$w_2$", fontsize=12)
+
+    # ── setup: the training points and the density model ──
+    ax = ax_setup
+    ax.contour(d["G1"], d["G2"], d["density"], levels=6, colors=[_CAT["overlay"]], linewidths=0.9, zorder=0)
     _training_points(ax, d)
     ax.plot([], [], color=_CAT["text"], lw=1, alpha=0.4, label="missing a feature")
+    ax.plot([], [], color=_CAT["overlay"], lw=0.9, label="the density model $p(x)$")
     _feature_axes(ax, d)
     _side_legend(ax)
-    _panel_title(ax, "The training points")
 
-    ax = ax_density
-    greys = matplotlib.colors.LinearSegmentedColormap.from_list("density", ["white", _CAT["grey"], _CAT["overlay"]])
-    ax.contourf(d["G1"], d["G2"], d["density"], levels=10, cmap=greys, zorder=0)
+    # ── goal: the lowest point of the loss over w ──
+    ax = ax_goal
+    landscape(ax)
+    w_axes(ax)
+
+    # ── step 1: predict every point with the current w ──
+    ax = ax_space
+    _prediction_background(ax, w_now, d)
     _training_points(ax, d, alpha=0.5, lines=False, label=False)
-    _feature_axes(ax, d)
-    _panel_title(ax, r"The density model $p(x)$, fit on them")
-
-    # ── step 1 ──
-    ax = ax_line
-    _prediction_background(ax, d["w_star"], d)
-    _training_points(ax, d, alpha=0.35, lines=False, label=False)
-    _boundary(ax, d["w_star"], color=_DEEP["gold"], lw=1.5, ls=(0, (5, 3)), zorder=2, label="the boundary")
-    _followed_line(ax, d)
-    ax.plot(d["x1"], d["mean_x2"], "o", color="white", mec=_CAT["text"], mew=1.8, ms=11, zorder=5,
-            label="mean imputation")
+    _boundary(ax, w_now, color=_DEEP["gold"], lw=1.5, ls=(0, (5, 3)), zorder=2, label="its boundary")
+    ax.fill_between([], [], color=_PASTEL["gold"], label=r"$\sigma(w^\top x)$")
+    # short labels, the legend sits between the two panels
+    _followed_line(ax, d, label=False)
+    ax.plot([], [], color=_LABEL_COLORS[y], lw=2.5, label="followed point")
+    ax.fill_between([], [], color=_CAT["overlay"], alpha=0.5, label=r"$p(x_2 \mid x_1)$")
     _feature_axes(ax, d)
     _side_legend(ax)
-    _panel_title(ax, "The point is a line")
+    _panel_title(ax, r"The classifier at the current $w$")
 
-    ax = ax_average
-    _along_line(ax, d)
-    ax.fill_between(X2, d["line_sigmoid"] * scaled, color=_FILL["gold"], lw=0,
-                    label=rf"weighted average, the prediction: {d['answer']:.3f}")
-    mean_sigma = 1 / (1 + np.exp(-(d["w_star"] @ np.array([d["x1"], d["mean_x2"]]))))
-    ax.plot(d["mean_x2"], mean_sigma, "o", color="white", mec=_CAT["text"], mew=1.8, ms=11, zorder=5,
-            label=rf"mean imputation, $\sigma$ at one point: {mean_sigma:.3f}")
-    _finish(ax, "Its prediction is an average along the line", xlabel="the missing feature $x_2$", room=0.6)
-
-    # ── step 2: pcpg and mc, on the same axes ──
-    ax = ax_pcpg
-    _along_line(ax, d)
-    for color, lw, k, curve in zip(_BELL_LINES, _SUM_WIDTHS, d["bell_ks"], d["line_bells"]):
-        ax.plot(X2, curve, color=color, lw=lw, label=_count(k, d["bell_ks"][-1], "bell"))
-    ax.fill_between(X2, d["line_bells"][-1] * scaled, color=_FILL["indigo"], alpha=0.75, lw=0,
-                    label=rf"average of the bells: {d['answer_pcpg']:.3f}")
-    ax.set_ylim(-0.05, 1.05)
-    _finish(ax, "PCPG: a sum of bells, each averaged exactly", xlabel="the missing feature $x_2$", room=0.75)
-
-    ax = ax_mc
-    _along_line(ax, d)
-    s = d["samples"]
-    values = 1 / (1 + np.exp(-(d["w_star"][0] * d["x1"] + d["w_star"][1] * s)))
-    ax.vlines(s, 0, values, color=_FILL["coral"], lw=2.5)
-    ax.plot(s, values, "o", color=_LINE["coral"], ms=12, mec="white", mew=1.5, zorder=5,
-            label=rf"{len(s)} random positions, $\sigma$ at them")
-    ax.axhline(values.mean(), color=_LINE["coral"], lw=2.2, label=rf"their average: {values.mean():.3f}")
-    ax.set_ylim(-0.05, 1.05)
-    _finish(ax, f"MC: {len(s)} random positions", xlabel="the missing feature $x_2$", room=0.75)
-
-    # ── step 3: w changes, the prediction changes ──
-    ax = ax_sigma
+    ax = ax_line
+    sigma = 1 / (1 + np.exp(-(w_now[0] * d["x1"] + w_now[1] * X2)))
     _along_line(ax, d, sigma=False)
-    tones = [_tone("gold", 0.9), _tone("gold", 1.3), _tone("gold", 1.9)]
-    for color, t, sigma, p in zip(tones, d["show_t"], d["sigma_t"], np.interp(d["show_t"], d["t"], d["prediction_exact"])):
-        ax.plot(X2, sigma, color=color, lw=2.4, label=rf"$w = {t:g}\,w^*$: prediction {p:.3f}")
-    _finish(ax, r"$\sigma$ along the line, for a growing $w$", xlabel="the missing feature $x_2$", room=0.6)
+    _dashed(ax, X2, sigma, "gold", label=r"$\sigma(w^\top x)$ on the line")
+    ax.fill_between(X2, sigma * dens / dens.max(), color=_FILL["indigo"], alpha=0.75, lw=0,
+                    label=rf"PCPG: the average, {d['prediction_now_pcpg']:.3f}")
+    s = d["mc_samples"]
+    values = 1 / (1 + np.exp(-(w_now[0] * d["x1"] + w_now[1] * s)))
+    ax.vlines(s, 0, values, color=_FILL["coral"], lw=2.5)
+    ax.plot(s, values, "o", color=_LINE["coral"], ms=11, mec="white", mew=1.5, zorder=5,
+            label=rf"MC: {len(s)} random $x_2$, average {values.mean():.3f}")
+    ax.axhline(values.mean(), color=_LINE["coral"], lw=1.8, ls=(0, (4, 2)))
+    _finish(ax, "The prediction of the followed point", xlabel="the missing feature $x_2$", room=0.6)
 
+    # ── step 2: the loss of the point, and of all points ──
     ax = ax_curve
-    t = d["t"]
-    _band(ax, t, d["prediction_exact"], _SIGMA_BAND, label="exact")
-    for k, run in enumerate(d["prediction_mc"]):
-        ax.plot(t, run, color=_MC_FEW, lw=1.2, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(t, d["prediction_pcpg"], color=_LINE["indigo"], lw=2.4, label="PCPG")
-    ax.plot(d["show_t"], np.interp(d["show_t"], t, d["prediction_exact"]), "o", color=_DEEP["gold"], ms=9, zorder=5)
-    ax.set_xlim(t[0], t[-1])
-    ax.set_ylabel("prediction of the point", fontsize=12)
-    _finish(ax, "The prediction of the point", xlabel=r"$t$ \ ($w = t\,w^*$: $w = 0$ at $0$, the optimum at $1$)",
-            room=0.45)
+    q = np.linspace(0.02, 1, 400)
+    ax.plot(q, -np.log(q), color=_CAT["text"], lw=2, label=r"loss $-\log p$")
+    for p, color, name in ((right(d["prediction_now_pcpg"]), _LINE["indigo"], "PCPG"),
+                           (right(d["prediction_now_mc"]), _LINE["coral"], "MC")):
+        ax.plot([p, p], [0, -np.log(p)], color=color, lw=1.2, ls=(0, (3, 2)))
+        ax.plot(p, -np.log(p), "o", color=color, ms=12, mec="white", mew=1.5, zorder=5,
+                label=rf"{name}: $p={p:.3f}$, loss {-np.log(p):.3f}")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 2.5)
+    ax.set_ylabel("loss", fontsize=12)
+    ax.set_xlabel(rf"its probability of its label $y={y}$", fontsize=12)
+    ax.legend(loc="upper right")
+    _panel_title(ax, "The loss of the followed point")
 
-    # ── step 4: the loss ──
-    ax = ax_point_loss
-    _band(ax, t, d["point_loss_exact"], _SIGMA_BAND, label="exact")
-    for k, run in enumerate(d["point_loss_mc"]):
-        ax.plot(t, run, color=_MC_FEW, lw=1.1, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(t, d["point_loss_mc_mean"], color=_DEEP["coral"], lw=2.2, ls=(0, (5, 2.5)), label="MC on average")
-    ax.plot(t, d["point_loss_pcpg"], color=_LINE["indigo"], lw=2.4, label="PCPG")
-    ax.set_xlim(t[0], t[-1])
-    ax.set_ylim(0, 2.2 * d["point_loss_exact"].max())
-    ax.set_ylabel(rf"loss $-\log p(y={d['label']} \mid x^o)$", fontsize=12)
-    _finish(ax, "The loss of the point", xlabel=r"$t$ \ ($w = t\,w^*$)", room=0.3)
+    ax = ax_hist
+    ax.hist(d["losses_now"], bins=40, color=_CAT["grey"], ec="white", lw=0.5, label="every point")
+    ax.axvline(d["loss_now"], color=_CAT["text"], lw=2.2, label=rf"the average: $L(w)={d['loss_now']:.3f}$")
+    ax.axvline(-np.log(right(d["prediction_now_pcpg"])), color=_LINE["indigo"], lw=2, ls=(0, (3, 2)),
+               label="the followed point")
+    ax.set_ylabel("points", fontsize=12)
+    _finish(ax, "The losses of all points", xlabel="loss", room=0.35, legend=False)
+    ax.legend(loc="upper right")
 
-    ax = ax_loss
-    _band(ax, t, d["loss_exact"], _SIGMA_BAND, label="exact")
-    ax.plot(t, d["loss_mc"], color=_DEEP["coral"], lw=2.2, ls=(0, (5, 2.5)), label=f"MC, {d['mc_few']} samples, on average")
-    ax.plot(t, d["loss_pcpg"], color=_LINE["indigo"], lw=2.4, label="PCPG")
-    t_mc = t[np.argmin(d["loss_mc"])]
-    ax.plot(1, 0, "*", color=_DEEP["gold"], ms=22, zorder=5)
-    ax.plot(t_mc, d["loss_mc"].min(), "X", color=_DEEP["coral"], ms=15, mec="white", zorder=5)
-    ax.set_xlim(t[0], t[-1])
-    ax.set_ylim(-0.02 * d["loss_exact"].max(), 0.6 * d["loss_exact"].max())
-    ax.set_ylabel("loss minus its minimum", fontsize=12)
-    _finish(ax, "Summed over all points: the loss of training", xlabel=r"$t$ \ ($w = t\,w^*$)", room=0.4)
-
-    # ── step 5: training ──
+    # ── step 3: change w, repeat ──
     ax = ax_land
-    W1, W2 = np.meshgrid(d["W1"], d["W2"])
-    loss = np.maximum(d["landscape"], 1e-4)
-    levels = np.geomspace(loss.min() * 1.5, loss.max(), 12)
-    fills = matplotlib.colors.LinearSegmentedColormap.from_list("loss", ["white", _CAT["grey"]])
-    ax.contourf(W1, W2, loss, levels=np.concatenate([[loss.min()], levels]), cmap=fills,
-                norm=matplotlib.colors.LogNorm(), zorder=0)
-    ax.contour(W1, W2, loss, levels=levels, colors=[_CAT["overlay"]], linewidths=0.7, zorder=1)
+    landscape(ax)
     ax.plot(*d["path_exact"].T, color=_SIGMA_BAND, lw=12, solid_capstyle="round", zorder=2, label="exact")
     for k, path in enumerate(d["paths_mc"]):
         ax.plot(*path.T, color=_MC_FEW, lw=1.6, zorder=3, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
     ax.plot(*d["path_mc_same"].T, color=_MC_SAME, lw=1.8, zorder=3, label=f"MC, {d['mc_same']} samples")
     ax.plot(*d["path_pcpg"].T, color=_LINE["indigo"], lw=2.4, zorder=4, label="PCPG")
-    ax.plot(*d["path_pcpg"][d["show_epochs"]].T, "o", color=_LINE["indigo"], ms=6, zorder=4)
+    ax.plot(*d["path_pcpg"][::d["dot_every"]].T, "o", color=_LINE["indigo"], ms=5, zorder=4)
+    ax.plot(*w_now, "o", ms=14, mfc="none", mec=_CAT["text"], mew=2, zorder=6)
     ax.plot(*d["mc_minimum"], "X", color=_DEEP["coral"], ms=17, mec="white", zorder=6)
-    ax.plot(*d["w_complete"], "o", color=_CAT["text"], ms=9, zorder=6)
-    ax.plot(*d["w_mean"], "D", color="white", mec=_CAT["overlay"], mew=2, ms=9, zorder=6)
-    ax.plot(*d["w_star"], "*", color=_DEEP["gold"], ms=24, zorder=7)
-    ax.plot(0, 0, "o", color="white", mec=_CAT["text"], mew=1.5, ms=9, zorder=7)
-    ax.annotate("$w=0$", (0, 0), xytext=(8, 8), textcoords="offset points", fontsize=12)
-    ax.set_xlim(d["W1"][0], d["W1"][-1])
-    ax.set_ylim(d["W2"][0], d["W2"][-1])
-    ax.set_aspect("equal")
-    ax.set_xlabel("$w_1$", fontsize=12)
-    ax.set_ylabel("$w_2$", fontsize=12)
+    w_axes(ax)
     # the corner away from w = 0 and w* is empty
     ax.legend(loc="upper right", fontsize=10, frameon=True, framealpha=0.9, edgecolor="none")
-    _panel_title(ax, "The paths of $w$ over the loss")
+    _panel_title(ax, "The paths of $w$ during training")
 
     ax = ax_gap
-    epochs = np.arange(len(d["gaps_exact"]))
+    steps = np.arange(len(d["gaps_exact"]))
     floor = lambda g: np.maximum(g, 1e-6)
-    _band(ax, epochs, floor(d["gaps_exact"]), _SIGMA_BAND, label="exact")
+    _band(ax, steps, floor(d["gaps_exact"]), _SIGMA_BAND, label="exact")
     for k, g in enumerate(d["gaps_mc"]):
-        ax.plot(epochs, floor(g), color=_MC_FEW, lw=1.6, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(epochs, floor(d["gaps_mc_same"]), color=_MC_SAME, lw=1.8, label=f"MC, {d['mc_same']} samples")
-    ax.plot(epochs, floor(d["gaps_pcpg"]), color=_LINE["indigo"], lw=2.4, label="PCPG")
+        ax.plot(steps, floor(g), color=_MC_FEW, lw=1.6, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
+    ax.plot(steps, floor(d["gaps_mc_same"]), color=_MC_SAME, lw=1.8, label=f"MC, {d['mc_same']} samples")
+    ax.plot(steps, floor(d["gaps_pcpg"]), color=_LINE["indigo"], lw=2.4, label="PCPG")
     ax.set_yscale("log")
-    ax.set_xlim(0, epochs[-1])
-    ax.set_xlabel("epoch", fontsize=12)
-    ax.set_ylabel("loss minus its minimum", fontsize=12)
+    ax.set_xlim(0, steps[-1])
+    ax.set_xlabel("step", fontsize=12)
+    ax.set_ylabel("loss minus its lowest value", fontsize=12)
     ax.legend(loc="upper right")
     _panel_title(ax, "The loss during training")
 
-    # ── step 6 ──
-    ax = ax_boundary
+    # ── result: the boundaries at the end ──
+    ax = ax_result
     _prediction_background(ax, d["path_pcpg"][-1], d)
     _training_points(ax, d, alpha=0.4, lines=False, label=False)
     _boundary(ax, d["w_star"], color=_SIGMA_BAND, lw=11, solid_capstyle="butt", zorder=1, label="exact")
@@ -1502,38 +1506,21 @@ def _plot_training_step_by_step(d, texts, out_path):
     _boundary(ax, d["path_pcpg"][-1], color=_LINE["indigo"], lw=2.2, zorder=4, label="PCPG")
     _feature_axes(ax, d)
     _side_legend(ax)
-    _panel_title(ax, "The boundaries")
 
-    ax = ax_sharp
-    r = np.linspace(-2, 2, 400)
-    unit = d["w_star"] / np.linalg.norm(d["w_star"])
-    across = lambda w: 1 / (1 + np.exp(-(w @ unit) * r))
-    _band(ax, r, across(d["w_star"]), _SIGMA_BAND, label="exact")
-    ax.plot(r, across(d["w_complete"]), label="complete data", **_COMPLETE)
-    ax.plot(r, across(d["w_mean"]), label="mean imputation", **_MEAN)
-    for k, path in enumerate(d["paths_mc"]):
-        ax.plot(r, across(path[-1]), color=_MC_FEW, lw=1.6, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(r, across(d["path_mc_same"][-1]), color=_MC_SAME, lw=1.8, label=f"MC, {d['mc_same']} samples")
-    ax.plot(r, across(d["path_pcpg"][-1]), color=_LINE["indigo"], lw=2.4, label="PCPG")
-    ax.set_xlim(r[0], r[-1])
-    ax.set_ylabel(r"prediction $\sigma(w^\top x)$", fontsize=12)
-    _finish(ax, "How sharp: the prediction across the boundary", xlabel="distance from the boundary", room=0.6)
-
-    # one explanation below each panel, or one for the row where a panel is
-    # square and too narrow for its own
-    captions = [[texts["setup"]], [texts["step1"]], [texts["pcpg"], texts["mc"]],
-                [texts["sigma_t"], texts["curve_t"]], [texts["point_loss"], texts["loss"]],
-                [texts["landscape"] + " " + texts["gaps"]], [texts["step6"]]]
-    for axes, parts in zip(rows, captions):
-        if len(parts) == 1:
-            _row_caption(fig, axes, parts[0])
-        else:
-            # one explanation below each panel
-            for ax, part in zip(axes, parts):
-                _caption(fig, ax, part, fontsize=12.5)
-    headings = [("Setup", "h0"), ("Step 1", "h1"), ("Step 2", "h2"), ("Step 3", "h3"), ("Step 4", "h4"),
-                ("Step 5", "h5"), ("Step 6", "h6")]
-    _headings(fig, [(badge, texts[key], list(axes)) for (badge, key), axes in zip(headings, rows)])
+    # the single panels are square, so their explanations as wide as the
+    # middle four columns
+    middle = grid[1, 1:5].get_position(fig)
+    x0, x1 = middle.x0, middle.x1
+    for ax, key in ((ax_setup, "setup"), (ax_goal, "goal"), (ax_result, "ends")):
+        _caption(fig, ax, texts[key], x0=x0, x1=x1)
+    _row_caption(fig, (ax_space, ax_line), texts["predict"], texts["predict_point"])
+    _caption(fig, ax_curve, texts["point_loss"], fontsize=12.5)
+    _caption(fig, ax_hist, texts["all_losses"], fontsize=12.5)
+    _row_caption(fig, (ax_land, ax_gap), texts["landscape"], texts["gaps"])
+    rows = [("Setup", texts["h_setup"], [ax_setup]), ("Goal", texts["h_goal"], [ax_goal]),
+            ("Step 1", texts["h1"], [ax_space, ax_line]), ("Step 2", texts["h2"], [ax_curve, ax_hist]),
+            ("Step 3", texts["h3"], [ax_land, ax_gap]), ("Result", texts["h_result"], [ax_result])]
+    _headings(fig, rows)
     # a white margin, so the page border of a pdf viewer does not touch the panels
     fig.savefig(out_path, bbox_inches="tight", pad_inches=1)
     plt.close(fig)

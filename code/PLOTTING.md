@@ -20,7 +20,7 @@ Every figure is drawn with the helpers in `code/side/utils/plots.py`. Read this 
 | line widths | the step-by-step widths × `_THESIS_SCALE` (0.45) | as listed below |
 | axes and text | grey `0.3` | Catppuccin text slate `#4c4f69` |
 
-Thesis figures go straight into the LaTeX project: `pcpg_demo.py` writes them to both `code/side/figures/pcpg/` and `thesis/figures/pcpg/`.
+Thesis figures go straight into the LaTeX project: `estimate_overview_demo.py` writes them to both `code/side/figures/estimate_overview/` and `thesis/figures/pcpg/`.
 
 ## Colours
 

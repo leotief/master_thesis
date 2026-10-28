@@ -34,24 +34,16 @@ To replace the sigmoid function we use the PG-Sigmoid identity, shown in \cite{p
 \]
 for $z \in \R$.
 
-Intuitively, the identity writes the sigmoid as an average of bell-shaped curves
-$e^{z/2 - \gamma z^2/2}$, one for every value of $\gamma$. In practice we replace
-the expectation over $\gamma$ by a weighted sum over a few nodes $\gamma_j$ with
-weights $w_j$ (Section~\ref{subsec:pg-quadrature}), so $\sigma$ becomes a finite
-sum of weighted bells. Figure~\ref{fig:pcpg-bells} shows how the sum of the
-bells with the largest weights approaches $\sigma(z)$: already four bells
-reproduce the sigmoid closely, and with all nodes the difference is no longer
-visible.
+Intuitively, this means the sigmoid is replaced with a lot of bell-shaped curves averaged together, one for every value of $\gamma$. 
+In practice we replace the expectation over $\gamma$ by either an MC estimate or by explicitly choosing some "good" values for $\gamma$.
+Figure~\ref{fig:pcpg-bells} shows how well different number of bells approximate $\sigma$.
 
 \begin{figure}[htb]
   \centering
   \includegraphics[width=0.75\textwidth]{figures/pcpg/bells.pdf}
-  \caption[The Pólya-Gamma identity as a sum of bells]{The Pólya-Gamma identity
-    as a sum of bells. Partial sums of the weighted bells
-    $\frac{1}{2} w_j e^{z/2 - \gamma_j z^2/2}$, with nodes $\gamma_j$ and weights
-    $w_j$ from Golub--Welsch (Section~\ref{subsec:pg-quadrature}), largest weights
-    first (light to dark), against $\sigma(z)$ (yellow). The first bell, the one with the largest
-    weight, is decomposed further in Figure~\ref{fig:pcpg-waves}.}
+  \caption[The Pólya-Gamma identity]{The Pólya-Gamma identity graphically.
+    The sigmoid represented as an average of bells
+    $\sigma(z) = \E_{\gamma} \left[ \frac{1}{2} e^{\frac{z}{2} - \frac{\gamma z^2}{2}} \right]$.}
   \label{fig:pcpg-bells}
 \end{figure}
 
@@ -83,9 +75,10 @@ exactly the expectation of $e^{-ihu}$ over $u \sim \mathcal{N}(0,a)$:
     \exp \left( -\tfrac{1}{2} a h^2 \right) = \E_{u \sim \mathcal{N}(0,\,a)}\!\left[ e^{-ihu} \right].
 \end{equation}
 
-In plain words, it makes a quadratic term linear at the cost of introducing a helper variable that we need to integrate over.
+The trick makes a quadratic term linear at the cost of introducing a helper variable that we need to integrate over. 
+Again, intuitively this now means we represent the bells now as an average of waves
 
-Currently, in our term, $x$ appears quadratically as well as linearly. To be able to apply HS, we complete the square (again using $z = w^T x$):
+In our term, $x$ appears quadratically as well as linearly. To be able to apply HS, we complete the square (again using $z = w^T x$):
 
 \begin{align}
   \frac{1}{2}z - \frac{1}{2}\gamma z^2
