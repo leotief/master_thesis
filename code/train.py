@@ -31,7 +31,7 @@
 #                             about var / (2 BUDGET p^2), which shrinks w
 #                      PCPG   deterministic pcpg, N_OUTER x N_INNER nodes, from
 #                             the model's characteristic function
-#                      Exact  through the mixture of z (model.z_moments),
+#                      Exact  through the mixture of z (model.z_mixture),
 #                             gauss-hermite per component. only for the gmm and
 #                             small pcs, the target of mc and pcpg
 # the helpers are in experiment_utils.py
@@ -41,9 +41,10 @@ import itertools
 import torch
 import torch.nn.functional as F
 
-from experiment_utils import accuracy, compare, fit_density, load_data, logistic_regression, optimum
+from experiment_utils import accuracy, compare, fit_density, logistic_regression, optimum
 from pcpg import PCPG
 from side.utils.baselines import MCBaseline, MixtureGaussHermite
+from side.utils.data import load_data
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     px = fit_density(MODEL, x_missing, f"cache/train/{MODEL}_{n_features}features_{missing_rate}missing.pt", device)
 
     # the three estimators of the expected prediction E[sigmoid(w^T x) | x_obs].
-    # their differentiable(w, x) returns it for the points x as a tensor, with
+    # their estimate_diff(w, x) returns it for the points x as a tensor, with
     # gradients through w
     pcpg  = PCPG(px, n_outer=N_OUTER, n_inner=N_INNER)
     mc    = MCBaseline(px, n_samples=BUDGET)
@@ -119,9 +120,9 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     models = {
         "Complete data":   (x_train,   sigmoid_prediction),
         "Mean imputation": (x_filled,  sigmoid_prediction),
-        "MC":              (x_missing, mc.differentiable),
-        "PCPG":            (x_missing, pcpg.differentiable),
-        "Exact":           (x_missing, exact.differentiable),
+        "MC":              (x_missing, mc.estimate_diff),
+        "PCPG":            (x_missing, pcpg.estimate_diff),
+        "Exact":           (x_missing, exact.estimate_diff),
     }
 
     # ── training ──────────────────────────────────────────────────────────────
@@ -149,8 +150,8 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     # ── evaluation ────────────────────────────────────────────────────────────
 
     # the exact training objective J(w), and its optimum w* by full batch l-bfgs
-    w_star = optimum(objective, exact.differentiable, x_missing, y_train, n_train, device)
-    best = objective(exact.differentiable, w_star, x_missing, y_train, n_train).item()
+    w_star = optimum(objective, exact.estimate_diff, x_missing, y_train, n_train, device)
+    best = objective(exact.estimate_diff, w_star, x_missing, y_train, n_train).item()
 
     # for every model: the objective gap J(w) - J(w*), how well it minimises
     # the exact objective; the test accuracy on the incomplete test points,
@@ -162,8 +163,8 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     with torch.no_grad():
         for name, w in weights.items():
             scores[setting][name] = {
-                "gap": objective(exact.differentiable, w, x_missing, y_train, n_train).item() - best,
-                "accuracy_missing": accuracy(exact.differentiable(w, x_test_missing), y_test),
+                "gap": objective(exact.estimate_diff, w, x_missing, y_train, n_train).item() - best,
+                "accuracy_missing": accuracy(exact.estimate_diff(w, x_test_missing), y_test),
                 "accuracy_complete": accuracy(sigmoid_prediction(w, x_test), y_test),
             }
 

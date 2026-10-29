@@ -563,7 +563,7 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
     sigma = 1 / (1 + np.exp(-z))
     by_weight = d["by_weight"]
     n_waves, n_bells = len(d["waves"]), len(d["bells"])
-    plural = lambda k, unit, n: f"all {unit}s" if k == n else f"{k} {unit}{'s' if k > 1 else ''}"
+    plural = lambda k, unit, n: f"{k} {unit}{'s' if k > 1 else ''}"
 
     # 6 columns: the setup and the goal over the middle 4, the other rows two
     # panels of 3 or three panels of 2
@@ -809,7 +809,7 @@ def _along_line(ax, d, sigma=True):
 _THESIS_SCALE = 0.45
 
 def _count(k, n, unit):
-    return f"all {unit}s" if k == n else f"{k} {unit}{'s' if k > 1 else ''}"
+    return f"{k} {unit}{'s' if k > 1 else ''}"
 
 # a single panel for the thesis, at 3/4 of the text width
 def _thesis_panel():
@@ -1184,6 +1184,7 @@ _METHOD_STYLE = {
     "Mean imputation": dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker=None),
     "MC":              dict(color=_LINE["coral"], marker="o"),
     "PCPG":            dict(color=_LINE["indigo"], marker="s"),
+    "PCPG exact inner": dict(color=_LINE["indigo"], ls=(0, (4, 2)), marker="s", mfc="white"),
     "PCPG outer MC":   dict(color=_FILL["indigo"], marker="^"),
     "PCPG inner MC":   dict(color=_FILL["coral"], marker="v"),
     "PCPG full MC":    dict(color=_LINE["wine"], marker="D"),

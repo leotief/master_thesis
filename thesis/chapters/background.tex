@@ -12,6 +12,8 @@ If we are talking about the data-generating distribution, we will write $p_{\tex
 When discussing data, a whole dataset is denoted as $\mathcal{X} = \{x_1, ... , x_N\}$ where $N$ is the number of samples. 
 Again scalar quantities will be written as $x \in \mathbb{R}$, and vectors as bold face $\vec x \in \mathbb{R}^D$.
 
+The notation for partially observed points, $x = (x^o, x^m)$ with the observed features $x^o$, the missing features $x^m$ and the matching split $w = (w_o, w_m)$ of the classifier, will be introduced here.
+
 \section{Probabilistic Modelling}
 \label{sec:pm}
 
@@ -114,6 +116,16 @@ very realistic images or compelling text, they lack in tractability for all exce
 On the other hand there are many, mostly older, less complex models like Gaussian Mixture Models (GMMs), Hidden Markov Models (HMMs) and so on, 
 that lack in expressiveness and only work well enough for simple data but can compute many inference tasks tractably \cite{ml_book}.
 
+\section{Missing Data}
+\label{sec:missing-data}
+
+This section will introduce the missingness mechanisms (MCAR, MAR, MNAR) and the usual ways of handling missing features (dropping points, mean imputation, multiple imputation, marginalisation), which motivate the expected prediction as the goal.
+
+\section{Logistic Regression}
+\label{sec:logistic-regression}
+
+This section will introduce logistic regression $p(y \mid x) = \sigma(w^T x)$, its log loss with $L_2$ penalty and how it is optimised.
+
 \section{Gaussian Mixture Model}
 \label{sec:gmm}
 
@@ -143,6 +155,19 @@ covariance matrix $\boldsymbol{\Sigma}_k$. This component is calculated using th
 Furthermore $\boldsymbol{\theta}$ refers to the parameter vector $\boldsymbol{\theta} = \{\boldsymbol{\pi}, \boldsymbol{\mu}, \boldsymbol{\Sigma}\}$, where $\boldsymbol{\pi} = \{ \pi_1, ... , \pi_K \}, \ \boldsymbol{\mu} = \{ \boldsymbol{\mu}_1, ... , \boldsymbol{\mu}_K \}, \ \boldsymbol{\Sigma} = \{ \boldsymbol{\Sigma}_1, ... , \boldsymbol{\Sigma}_K \}$.
 
 We call $\boldsymbol{\theta}$ the learnable parameters and $K$ the hyperparameter of the model.
+
+\subsection{Conditioning on Observed Features}
+\label{subsec:gmm-conditioning}
+
+For a GMM with diagonal covariances $\Sigma_k = \mathrm{diag}(\sigma_k^2)$, the
+conditional density $p(x^m \mid x^o)$ is again a mixture, with the same component
+shapes restricted to the missing coordinates and reweighted by the posterior
+responsibility of each component given $x^o$:
+\[
+  \tilde{\pi}_k(x^o) = \frac{\pi_k \, \mathcal{N}(x^o; \mu_k^o, \Sigma_k^o)}{\sum_{j=1}^{K} \pi_j \, \mathcal{N}(x^o; \mu_j^o, \Sigma_j^o)},
+\]
+where $\mu_k^o, \Sigma_k^o$ are the component means and covariances restricted to
+the observed coordinates.
 
 \section{Probabilistic Circuits}
 \label{sec:pc}
@@ -251,4 +276,100 @@ and further discussion on other properties.
 Using a PC in a real-world scenario then would entail first deciding on a structure (i.e., which properties and leaf 
 distributions to use and how the nodes should be arranged in the graph) and then doing a Maximum Likelihood 
 Estimation, where $\theta$ is composed of the weights of the sum nodes and the parameters of the leaf distributions (e.g., means and variances for a Gaussian). 
-This optimization is usually done via Gradient Descent or Expectation-Maximization (EM). More details will follow in Section \ref{sec:simple_pc}.
+This optimization is usually done via Gradient Descent or Expectation-Maximization (EM).
+
+This section will also explain how a PC marginalises missing features (by setting their leaves to one), why the expectation of a function that factorises over the features can be pushed down to the leaves, and the RAT-SPN structure used in the experiments.
+
+\section{Numerical Integration}
+\label{sec:numerical-integration}
+
+Many quantities in this thesis are expectations $\mathbb{E}_{x \sim p}[f(x)] = \int f(x)\, p(x) \, \mathrm{d}x$ that have no closed form.
+Both methods below replace such an expectation by a weighted sum $\sum_{i=1}^{n} w_i f(x_i)$ over nodes $x_i$ with weights $w_i$; they differ in how the nodes and weights are chosen.
+
+\subsection{Monte Carlo}
+\label{subsec:monte-carlo}
+
+This section will introduce Monte Carlo estimation: random nodes $x_i \sim p$ with equal weights, unbiased, with an error of order $1/\sqrt{n}$ in any dimension.
+
+\subsection{Gaussian Quadrature}
+\label{subsec:gaussian-quadrature}
+
+A Gaussian quadrature rule chooses $n$ deterministic nodes and weights such that
+the weighted sum is exact whenever $f$ is a polynomial of degree up to $2n - 1$.
+For smooth $f$ it therefore converges very fast in $n$.
+
+\subsubsection{Gauss--Hermite Quadrature}
+\label{subsec:bg-gauss-hermite}
+
+Gauss--Hermite quadrature is the Gaussian quadrature rule for the weight function
+$e^{-t^2}$, with deterministic nodes $\{t_i\}_{i=1}^{n}$ and weights $\{\omega_i\}_{i=1}^{n}$
+such that
+\[
+  \int_{-\infty}^{\infty} e^{-t^2} g(t) \, \mathrm{d}t \approx \sum_{i=1}^{n} \omega_i \, g(t_i).
+\]
+To use it for an expectation under $\mathcal{N}(0, a)$, we need to bring that
+expectation into the form $\int e^{-t^2} g(t)\,\mathrm{d}t$. Writing the
+expectation out as an integral against the Gaussian density gives
+\[
+  \mathbb{E}_{u \sim \mathcal{N}(0, a)}[f(u)] = \int_{-\infty}^{\infty} \frac{1}{\sqrt{2\pi a}} \exp \!\left(-\frac{u^2}{2a}\right) f(u) \, \mathrm{d}u.
+\]
+Apply the substitution $u = \sqrt{2a}\,t$. It changes three pieces of
+the integrand:
+\begin{itemize}
+  \item the differential: $\mathrm{d}u = \sqrt{2a}\,\mathrm{d}t$,
+  \item the Gaussian exponent: $\dfrac{u^2}{2a} = \dfrac{(\sqrt{2a}\,t)^2}{2a} = \dfrac{2a\, t^2}{2a} = t^2$,
+  \item the argument of $f$: $f(u) = f \!\left(\sqrt{2a}\,t\right)$,
+\end{itemize}
+and the integration limits are unchanged since $\sqrt{2a} > 0$. Plugging
+all three substitutions into the integral:
+\begin{align*}
+  \mathbb{E}_{u \sim \mathcal{N}(0, a)}[f(u)]
+  &= \int_{-\infty}^{\infty} \frac{1}{\sqrt{2\pi a}} \, e^{-t^2} f \!\left(\sqrt{2a}\,t\right) \sqrt{2a} \, \mathrm{d}t \\
+  &= \frac{\sqrt{2a}}{\sqrt{2\pi a}} \int_{-\infty}^{\infty} e^{-t^2} f \!\left(\sqrt{2a}\,t\right) \mathrm{d}t.
+\end{align*}
+The constant prefactor simplifies to
+\[
+  \frac{\sqrt{2a}}{\sqrt{2\pi a}} = \sqrt{\frac{2a}{2\pi a}} = \sqrt{\frac{1}{\pi}} = \frac{1}{\sqrt{\pi}},
+\]
+so the Gaussian expectation becomes
+\[
+  \mathbb{E}_{u \sim \mathcal{N}(0, a)}[f(u)] = \frac{1}{\sqrt{\pi}} \int_{-\infty}^{\infty} e^{-t^2} f \!\left(\sqrt{2a}\,t\right) \mathrm{d}t \approx \frac{1}{\sqrt{\pi}} \sum_{i=1}^{n} \omega_i\, f \!\left(\sqrt{2a}\,t_i\right).
+\]
+
+\subsubsection{Golub--Welsch Algorithm}
+\label{subsec:bg-golub-welsch}
+
+For a distribution without a standard rule, the \emph{Golub--Welsch algorithm}
+\cite{golubwelsch1969} produces the $n$-point Gaussian quadrature nodes and weights
+from its first $2n$ moments $\mu_k := \mathbb{E}[x^k]$, $k = 0, \dots, 2n-1$.
+Form the $n \times n$ Hankel moment matrices
+\[
+  H_{ij} = \mu_{i+j}, \qquad H'_{ij} = \mu_{i+j+1}, \quad i,j = 0,\dots,n-1.
+\]
+Compute the Cholesky factor $H = R^\top R$ and the Jacobi (tridiagonal) matrix
+\[
+  J = R^{-\top} H' R^{-1}, \quad \text{symmetrised as } J \leftarrow \tfrac{1}{2}(J + J^\top).
+\]
+Eigendecompose $J = V \Lambda V^\top$. Then the quadrature nodes and weights are
+\[
+  x_j = \lambda_j, \qquad w_j = \mu_0\, v_{0j}^2, \quad j = 1,\dots,n,
+\]
+where $\lambda_j$ are the eigenvalues and $v_{0j}$ is the first component of
+the $j$-th eigenvector. The resulting rule integrates polynomials exactly up to
+degree $2n-1$. Hankel matrices of moments are extremely ill-conditioned, so in
+practice the computation has to be done in higher precision than floating point.
+
+\subsection{The Curse of Dimensionality}
+\label{subsec:curse-of-dimensionality}
+
+This section will explain why quadrature is only practical in very low dimension: a tensor grid of $n$ nodes per dimension needs $n^d$ nodes in $d$ dimensions, while the error of Monte Carlo does not depend on $d$.
+
+\section{Characteristic Function}
+\label{sec:characteristic-function}
+
+This section will introduce the characteristic function $\phi_X(s) = \mathbb{E}[\exp(i s^T X)]$, its basic properties ($|\phi_X| \leq 1$, the characteristic function of a Gaussian and of a linear combination) and how it describes a distribution.
+
+\section{Pólya--Gamma Distribution}
+\label{sec:polya-gamma}
+
+This section will introduce the Pólya--Gamma distribution $\mathrm{PG}(1, 0)$, its Laplace transform $\operatorname{sech}(\sqrt{t/2})$ and the Pólya--Gamma identity for the sigmoid \cite{polyagamma}.

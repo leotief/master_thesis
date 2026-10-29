@@ -2,3 +2,276 @@
 
 \chapter{Experimental Results}
 \label{cha:experimental_results}
+
+This chapter presents the experiments: first how accurately PCPG estimates the
+expected prediction, then how well a logistic regression can be trained with PCPG
+on incomplete data. The explanations of the results follow in
+Chapter~\ref{cha:discussion}.
+
+\section{Estimating the Expected Prediction}
+\label{sec:results-estimate}
+
+\paragraph{Setup.}
+The data are generated with scikit-learn's \texttt{make\_classification}:
+10{,}000 samples, of which 2 features are informative, 2 are linear combinations of
+these, and all others are independent noise; 8{,}000 samples are used for
+training and 2{,}000 for testing. The density $p(x)$ is a GMM with $K = 4$
+diagonal components, the classifier a logistic regression without intercept. The
+number of features is $d \in \{5, 16, 50, 158, 500, 1581, 5000\}$, a factor
+$\sqrt{10}$ apart. For every test point a fraction $\rho \in \{0.3, 0.5, 0.8\}$
+of the features is hidden at random. MC and PCPG get the same budget of
+$1{,}216$ evaluations: MC draws $1{,}216$ samples, and PCPG uses $M = 19$
+Gauss--PG nodes and $n_H = 64$ Gauss--Hermite nodes. The error is the RMSE over 50 test
+points against the exact value, which we compute from the Gaussian mixture of
+$z \mid \xo$ (Section~\ref{subsec:gmm-direct}) with adaptive quadrature. The time
+is that of one batched call over all 2{,}000 test points on a GPU.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison.pdf}
+  \caption[Comparison with the default classifier]{Mean imputation, MC and
+    PCPG against the number of features $d$, for 30\%, 50\% and 80\%
+    missing features, with the default logistic regression ($C = 1$). Top: RMSE
+    over 50 test points. Bottom: time for all 2{,}000 test points. MC and
+    PCPG use a budget of $1{,}216$ evaluations.}
+  \label{fig:comparison-default}
+\end{figure}
+
+\paragraph{Default classifier.}
+Figure~\ref{fig:comparison-default} shows the result with scikit-learn's default
+regularisation ($C = 1$). Up to $d = 158$, PCPG reaches an RMSE between
+$2 \cdot 10^{-7}$ and $2 \cdot 10^{-5}$, two to four orders of magnitude below MC,
+whose error stays between $3 \cdot 10^{-3}$ and $1.3 \cdot 10^{-2}$ at every $d$.
+From $d = 500$ on, the error of PCPG rises, and at $d = 5000$, with an RMSE
+between $2 \cdot 10^{-2}$ and $4 \cdot 10^{-2}$, it is worse than MC. The errors of
+MC and of mean imputation hardly depend on $d$.
+At the same time, the norm of the classifier grows with $d$
+(Table~\ref{tab:classifier-norm}): it is about $2.2$ up to $d = 158$, and $9.5$
+at $d = 5000$, where the classifier overfits. Section~\ref{sec:weight-norm}
+explains why a larger norm makes the expectation harder for PCPG.
+
+\begin{table}[ht]
+\centering
+\caption[The default logistic regression]{The logistic regression with the
+default regularisation ($C = 1$) for every number of features $d$: the norm of
+$w$, and accuracy and log loss on the 8{,}000 training and 2{,}000 test points.}
+\label{tab:classifier-norm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{rrrrr}
+\hline
+$d$ & $\|w\|$ & \textbf{train acc.} & \textbf{test acc.} & \textbf{test log loss} \\
+\hline
+5    & $2.2$ & $0.891$ & $0.887$ & $0.312$ \\
+16   & $2.3$ & $0.894$ & $0.875$ & $0.314$ \\
+50   & $2.3$ & $0.894$ & $0.888$ & $0.314$ \\
+158  & $2.4$ & $0.894$ & $0.875$ & $0.311$ \\
+500  & $2.7$ & $0.902$ & $0.874$ & $0.337$ \\
+1581 & $6.6$ & $0.938$ & $0.817$ & $0.764$ \\
+5000 & $9.5$ & $1.000$ & $0.805$ & $1.215$ \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_fixed_norm.pdf}
+  \caption[Comparison with a fixed weight norm]{The same comparison as in
+    Figure~\ref{fig:comparison-default}, with the weights of the logistic
+    regression rescaled to unit norm, $w / \|w\|$, for every number of features
+    $d$.}
+  \label{fig:comparison-fixed-norm}
+\end{figure}
+
+\paragraph{Fixed weight norm.}
+To separate the effect of $d$ from that of $\|w\|$, we rescale the weights of
+the default classifier to unit norm, $w \leftarrow w / \|w\|$, for every $d$.
+This keeps the direction of $w$, and with it every decision of the classifier,
+and only puts $z = w^T x$ on the same scale for every $d$.
+With the norm held fixed (Figure~\ref{fig:comparison-fixed-norm}), the error of
+PCPG no longer depends on $d$. It lies between $3.6 \cdot 10^{-8}$ and
+$6 \cdot 10^{-8}$ for every $d$ and missing rate, including $d = 1581$ and
+$d = 5000$. MC stays between $2 \cdot 10^{-3}$ and $9 \cdot 10^{-3}$.
+
+\paragraph{Runtime.}
+The bottom rows of both figures are the same, since the time does not depend on
+$w$. For all methods it grows linearly in $d$. From $d = 16$ on, PCPG is about
+twice as fast as MC at the same budget, for example about $1.4$\,s against
+$3.0$\,s at $d = 5000$.
+
+\section{Training with Missing Features}
+\label{sec:training}
+
+In this section we train a logistic regression on incomplete data with PCPG
+inside the loss (Section~\ref{sec:training-pcpg}) and compare it with the usual
+ways of training on incomplete data.
+
+\subsection{Compared Models}
+\label{subsec:training-models}
+
+All models are logistic regressions without intercept. They differ only in the
+training points they see and in the prediction their loss is built from
+(Table~\ref{tab:training-models}):
+\begin{itemize}
+  \item \textbf{Complete data:} an ordinary logistic regression on the complete
+        training points. This is an oracle, since these points are not available
+        when features are missing. It shows what training could reach without
+        missing features.
+  \item \textbf{Mean imputation:} an ordinary logistic regression on the training
+        points with every missing feature replaced by the mean of its observed
+        values.
+  \item \textbf{MC, PCPG, Exact:} the marginal likelihood \eqref{eq:marginal-likelihood}
+        on the incomplete training points, with the expectation estimated by Monte
+        Carlo with $S$ samples, by deterministic PCPG with $M \times N$ nodes, or
+        computed exactly. Exact uses the direct route for Gaussian mixtures
+        (Section~\ref{subsec:gmm-direct}) with Gauss--Hermite quadrature for every
+        component. It is only available for the GMM, and serves as the target of
+        MC and PCPG.
+\end{itemize}
+
+\begin{table}[htb]
+\centering
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lll}
+\hline
+\textbf{Model} & \textbf{Training points} & \textbf{Prediction in the loss} \\
+\hline
+Complete data   & complete $x$                 & $\sigma(w^T x)$ \\
+Mean imputation & $\xo$, $\xm$ filled by means & $\sigma(w^T x)$ \\
+MC              & $\xo$                        & $\frac{1}{S}\sum_s \sigma(w^T x^{(s)})$ \\
+PCPG            & $\xo$                        & PCPG, $M \times N$ nodes \\
+Exact           & $\xo$                        & $\sum_k \tilde\pi_k(\xo) \E_{\mathcal{N}(m_k, v_k)}[\sigma(z)]$ \\
+\hline
+\end{tabular}
+\caption{The compared models. The last three minimise the marginal likelihood
+  \eqref{eq:marginal-likelihood}, the first two an ordinary logistic regression
+  loss. All use the same $L_2$ penalty.}
+\label{tab:training-models}
+\end{table}
+
+MC, PCPG and Exact are trained in the same way, with Adam on minibatches,
+starting from $w = 0$. Complete data and mean imputation are ordinary logistic
+regressions and are fit with scikit-learn, which finds their optimum exactly.
+
+\subsection{Evaluation}
+\label{subsec:training-evaluation}
+
+Every trained $w$ is scored in three ways.
+\begin{itemize}
+  \item \textbf{Objective gap} $J(w) - J(w^*)$, where $J$ is the exact marginal
+        likelihood \eqref{eq:marginal-likelihood} on the training points and
+        $w^*$ its optimum, found by full-batch L-BFGS. It measures how well a model
+        minimises the marginal likelihood, so its target is Exact. For complete
+        data and mean imputation it also contains the difference between their
+        objective and the marginal likelihood.
+  \item \textbf{Test accuracy on incomplete points:} every model predicts with the
+        exact expected prediction on test points with the same fraction of
+        missing features, so the models only differ in $w$.
+  \item \textbf{Test accuracy on complete points:} the accuracy of
+        $\sigma(w^T x)$ on the complete test points, i.e.\ how good $w$ is as a
+        classifier.
+\end{itemize}
+For both accuracies the target is the complete-data model, the classifier that
+training could reach if no features were missing.
+
+\subsection{Setup}
+\label{subsec:training-setup}
+
+The data are again generated with scikit-learn's \texttt{make\_classification}, with
+10{,}000 samples, 8{,}000 for training and 2{,}000 for testing. In contrast to
+Section~\ref{sec:results-estimate}, half of the features are informative and the
+others are noise, without redundant features: with only two informative
+features, almost all missing features would be irrelevant for the label. The
+number of features is $d \in \{5, 10, 20, 50, 100\}$. In every training and test
+point, $\lfloor \rho d \rfloor$ features are hidden at random, with
+$\rho \in \{0.3, 0.5, 0.8\}$. The density is a GMM with $K = 4$ diagonal
+components, fit on the incomplete training points. PCPG uses $M = 10$
+Gauss--PG nodes and $N = 32$ Gauss--Hermite nodes, and MC gets the same
+budget of $S = 320$ samples per point and step. Exact uses 64 Gauss--Hermite
+nodes per component. Adam runs for 100 epochs with minibatches of 1{,}024 points
+and a learning rate of $0.01$.
+
+\subsection{Results}
+\label{subsec:training-results}
+
+All results are for a single random choice of the hidden features per setting.
+With 2{,}000 test points, an accuracy has a standard error of about
+$0.9$ percentage points, so smaller differences in accuracy are not meaningful.
+The results are discussed in Section~\ref{sec:disc-training}.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_gap.pdf}
+  \caption[Objective gap of the trained classifiers]{Objective gap
+    $J(w) - J(w^*)$ of the trained classifiers against the number of features $d$,
+    for 30\%, 50\% and 80\% missing features. $J$ is the exact marginal likelihood
+    \eqref{eq:marginal-likelihood} on the training points, and the target is the
+    classifier trained with the exact expectation (yellow band). MC uses
+    $S = 320$ samples, PCPG $10 \times 32$ nodes.}
+  \label{fig:training-gap}
+\end{figure}
+
+\paragraph{Objective gap.}
+Figure~\ref{fig:training-gap} shows how well every model minimises the marginal
+likelihood. MC, PCPG and Exact mostly end between $5 \cdot 10^{-6}$ and
+$10^{-4}$ above the optimum, complete data and mean imputation mostly between
+$10^{-3}$ and $2 \cdot 10^{-2}$. PCPG follows Exact closely in almost all
+settings. MC lies slightly above it, by up to $7 \cdot 10^{-5}$ for 10 and 20
+features. At both ends of the range of $d$, the gaps of all three are larger.
+The only setting in which PCPG falls behind Exact is 5 features with 30\%
+missing, where its gap of $2.2 \cdot 10^{-3}$ is three times that of Exact.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_accuracy_missing.pdf}
+  \caption[Test accuracy on incomplete points]{Test accuracy on test points with
+    the same fraction of missing features, every classifier with the exact
+    expected prediction. The target is the classifier trained on complete data
+    (yellow band).}
+  \label{fig:training-accuracy-missing}
+\end{figure}
+
+\paragraph{Accuracy on incomplete test points.}
+When the test points are incomplete as well
+(Figure~\ref{fig:training-accuracy-missing}), all classifiers reach almost the
+same accuracy at 30\% and 50\% missing. At 80\% missing, the classifiers trained
+on the marginal likelihood are more accurate than the one trained on complete
+data, by 2.0 percentage points at 5 features ($57.7\%$ against $55.7\%$), 1.9 at
+50 features and 1.4 at 100 features. Mean imputation lies close to the marginal
+likelihood at 50 and 100 features, but 1.9 percentage points below it at
+5 features.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_accuracy_complete.pdf}
+  \caption[Test accuracy on complete points]{Test accuracy of $\sigma(w^T x)$ on
+    the complete test points, i.e.\ how good the classifier is when nothing is
+    missing. The target is the classifier trained on complete data (yellow band).}
+  \label{fig:training-accuracy-complete}
+\end{figure}
+
+\paragraph{Accuracy on complete test points.}
+At 30\% and 50\% missing, all classifiers lie within 1.5 percentage points of the
+complete-data classifier (Figure~\ref{fig:training-accuracy-complete}). At 80\%
+missing they fall behind it, by up to $2.9$ percentage points at 100 features.
+Here, the classifiers trained on the marginal likelihood are ahead of mean
+imputation at 10 and 20 features ($81.1\%$ against $79.4\%$ at 20 features), and
+level with it at 50 and 100 features. At 5 features, mean imputation is ahead by
+1.1 percentage points.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_sklearn.pdf}
+  \caption[Complete data and mean imputation by scikit-learn and Adam]{The two
+    ordinary logistic regressions, fit with scikit-learn (open markers) and with the
+    same Adam schedule as the other models (filled markers): objective gap, and
+    test accuracy on incomplete and on complete test points.}
+  \label{fig:training-sklearn}
+\end{figure}
+
+\paragraph{Adam against an exact solver.}
+To check that the training by Adam does not distort the comparison, we also
+fit complete data and mean imputation with Adam, in the same way as MC, PCPG and
+Exact (Figure~\ref{fig:training-sklearn}). Both fits give practically the same
+accuracies, and the same objective gap except at 5 features, where the gaps
+differ by up to a factor of five, in both directions.

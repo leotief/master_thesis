@@ -1,17 +1,17 @@
-# helpers of the experiment scripts that are not part of their story: loading
-# the data with missing features, fitting the density model, finding the
-# optimum of an objective, the accuracy, and the comparison of all settings
+# helpers of the experiment scripts (train.py, estimate.py) that are not part
+# of their story: fitting the density model, the logistic regression, finding the optimum of an objective, the
+# accuracy, the errors of the estimators, and the comparisons of all settings
 
 import os
+import time
 
 import numpy as np
 import torch
 from sklearn.linear_model import LogisticRegression
 
-from side.utils.data import DataManager
-from side.utils.plots import plot_train_features, plot_train_sklearn, save_figure
+from side.utils.data import loader
+from side.utils.plots import plot_estimate_comparison, plot_train_features, plot_train_sklearn, save_figure
 from side.utils.gmm import GMM
-from side.utils.pc import PC
 from side.utils.spflow_pc import SPFlowPC
 
 # the density models: K gmm components, and the circuit of both pcs (gaussians
@@ -20,32 +20,6 @@ K              = 4
 PC_CHANNELS    = 4
 PC_REPETITIONS = 3
 PC_DEPTH       = 2
-
-
-# a copy of the points x (numpy) with missing_rate of the features of every
-# point set to nan, chosen at random for every point
-def hide(x, missing_rate, rng):
-    x = x.copy()
-    n_hidden = int(missing_rate * x.shape[1])
-    for row in x:
-        row[rng.choice(len(row), n_hidden, replace=False)] = np.nan
-    return x
-
-
-# make_classification with n_features features, informative of them
-# informative and the others noise, 8000 training and 2000 test points. the
-# points are the same for every seed, which features are hidden is not.
-# returns the training points (complete and incomplete), their labels, the test
-# points (complete and incomplete) and their labels, as tensors
-def load_data(n_features, missing_rate, informative, seed, device):
-    dm = DataManager("sk_class", samples=10_000, features=n_features, test_size=0.2, random_state=42,
-                     informative=informative)
-    x_train, x_test, y_train, y_test = dm.get_data()
-    rng = np.random.default_rng(seed)
-    x_missing = hide(x_train, missing_rate, rng)
-    x_test_missing = hide(x_test, missing_rate, rng)
-    arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test)
-    return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]
 
 
 # the density model ("gmm", "pc" or "spflow") fit on the points x (nan =
@@ -59,15 +33,12 @@ def fit_density(model, x, path, device):
         first = torch.where(torch.isnan(x[:K]), x.nanmean(dim=0), x[:K])
         px = GMM(device, K=K, means_init=first, n_features=n_features).to(device)
     elif model == "pc":
-        px = PC(device, n_features, channels=PC_CHANNELS, repetitions=PC_REPETITIONS, depth=PC_DEPTH)
-    else:
         px = SPFlowPC(device, n_features, channels=PC_CHANNELS, repetitions=PC_REPETITIONS, depth=PC_DEPTH)
 
     if os.path.exists(path):
         px.load_state_dict(torch.load(path, map_location=device))
     else:
-        dataset = torch.utils.data.TensorDataset(x)
-        px.fit(torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True))
+        px.fit(loader(x))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         torch.save(px.state_dict(), path)
 
@@ -146,3 +117,47 @@ def compare(scores, features, missing_rates, folder):
             for name in names:
                 sklearn[score][rate][name] = results[score][rate][name]
     save_figure(plot_train_sklearn, folder, "comparison_sklearn", features, missing_rates, sklearn)
+
+
+# the errors of estimate.py. every estimator is called as estimator.estimate(w,
+# x_partial, **kwargs), on a batch of test points (B, D) it returns an array
+# (B,), the kwargs are the swept counts (n_samples, n_outer, n_inner, n_nodes)
+
+# root mean squared error over the test points (B, D), against their exact
+# values (B,). for the random methods every test point gets one run, so the
+# noise is part of the error
+def rmse(estimator, w, points, truths, **kwargs):
+    return float(np.sqrt(np.mean(np.square(estimator.estimate(w, points, **kwargs) - truths))))
+
+# rmse and the wall clock time of one batched call over all points, and the
+# estimates of that call. the truths belong to the first len(truths) points,
+# the error is over those, the time is for all of them. after one call to warm
+# up (gpu kernels, cached nodes), the call is repeated `repeats` times and the
+# time is the median. the estimators return arrays on the cpu, so the gpu has
+# finished when the clock stops
+def timed_rmse(estimator, w, points, truths, repeats=3, **kwargs):
+    estimator.estimate(w, points, **kwargs)
+    times = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        estimates = estimator.estimate(w, points, **kwargs)
+        times.append(time.perf_counter() - t0)
+        if len(times) == 1:
+            first = estimates
+            error = float(np.sqrt(np.mean(np.square(estimates[:len(truths)] - truths))))
+    return error, float(np.median(times)), first
+
+
+# the comparison of estimate.py: scores[(n_features, missing_rate)][estimator]
+# holds the rmse and the time of every estimator in every setting. one figure,
+# against the number of features, one column per missing rate: the rmse on
+# top, the time for all n_points test points below, as figures/<folder>/<name>
+# and in the thesis
+def compare_estimates(scores, features, missing_rates, n_points, folder, name):
+    errors, times = {}, {}
+    for rate in missing_rates:
+        errors[rate], times[rate] = {}, {}
+        for estimator in scores[(features[0], rate)]:
+            errors[rate][estimator] = [scores[(n, rate)][estimator][0] for n in features]
+            times[rate][estimator] = [scores[(n, rate)][estimator][1] for n in features]
+    save_figure(plot_estimate_comparison, folder, name, features, missing_rates, errors, times, n_points)

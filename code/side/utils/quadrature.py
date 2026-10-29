@@ -10,7 +10,7 @@
 #   "gauss_legendre"  gauss-legendre on [0, T]
 #   "log_gauss_legendre"  gauss-legendre in log omega
 #   "golub_welsch"    gauss quadrature with PG(1, 0) itself as the weight, via
-#                     golub-welsch, n <= ~19
+#                     golub-welsch
 #   "log_golub_welsch"  the same for log(omega), with the distribution of
 #                     log(omega) as the weight
 #   "sigmoid_fit_l2"  weights fitted so that the identity gives the sigmoid on
@@ -127,8 +127,9 @@ def _pg_log_gauss_legendre(n):
 #   moments -> hankel matrix -> cholesky -> jacobi matrix -> eigen decomposition
 # the moments come from the laplace transform L(t) = E[exp(-t omega)] = sech(sqrt(t/2)).
 # runs in mpmath with 200 digits because the hankel matrix is extremely ill
-# conditioned (float64 breaks down around n = 12). takes a few seconds, so
-# every n is only computed once
+# conditioned (float64 loses accuracy from n ~ 12, cholesky fails from n = 20).
+# 200 digits are exact to float64 far beyond that (checked up to n = 40). takes
+# a few seconds per n (25 s at n = 40), so every n is only computed once
 @lru_cache(maxsize=None)
 def _pg_golub_welsch(n):
     mpmath.mp.dps = 200

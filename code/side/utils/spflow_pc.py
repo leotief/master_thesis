@@ -5,13 +5,13 @@
 #   sample(n, x_obs)                   mc, spflow's conditional sampling
 #   characteristic_function(t, x_obs)  pcpg, the cf of p(x_mis | x_obs)
 #   z_mean(w, x_obs)                   pcpg's sign flip
-#   z_moments(w, x_obs)                the exact baselines, p(z | x_obs) as a
+#   z_mixture(w, x_obs)                the exact baselines, p(z | x_obs) as a
 #                                      mixture of gaussians
 #
 # a rat-spn is a stack of layers: gaussian leaves -> Factorize (products of
 # leaves into regions) -> (SplitConsecutive -> ElementwiseProduct -> Sum) per
 # depth -> RepetitionMixingLayer. spflow computes log-likelihoods through these
-# layers, the two passes below go through the same layers with other values:
+# layers, the three passes below go through the same layers with other values:
 #
 #   cf pass       the log of the cf in complex numbers. a missing leaf gives
 #                 the log cf of its gaussian, i s mu - s^2 sigma^2 / 2, an
@@ -19,6 +19,11 @@
 #                 logsumexp. divided by p(x_obs) (minus in log space) this is
 #                 the cf of p(x_mis | x_obs). one pass per frequency, so it
 #                 scales with the size of the circuit
+#   mean pass     E[z | x_obs] for z = w^T x. every node holds its log value
+#                 given x_obs and the conditional mean of its part of z: a
+#                 missing leaf gives w_d mu, an observed one 0, products add
+#                 the means, sums average them with the posterior weights.
+#                 as cheap as a log-likelihood pass
 #   mixture pass  the distribution of z = w^T x. given the observed features it
 #                 is a mixture of gaussians, one component per induced tree of
 #                 the circuit: every node holds the mixture of its part of z,
@@ -27,7 +32,7 @@
 #                 exponentially with the depth, so this only works for small
 #                 circuits, as the exact reference
 #
-# both passes run in float64, the data and parameters are float32
+# all passes run in float64, the data and parameters are float32
 
 import torch
 import torch.nn as nn
@@ -112,19 +117,19 @@ class SPFlowPC(nn.Module):
         log_norm, log_values = log_values[:len(x_obs)], log_values[len(x_obs):]
         return (log_values.view(-1, n) - log_norm[:, None]).view(*batch, n)
 
-    # E[z | x_obs] for z = w^T x, from the slope of the log cf at a small
-    # frequency: log phi(eps w_mis) = i eps E[w_mis^T x_mis] + O(eps^2).
-    # shape () or (B,)
+    # E[z | x_obs] for z = w^T x, the mean of the missing part from the mean
+    # pass plus the observed part. shape () or (B,)
     @torch.no_grad()
-    def z_mean(self, w, x_obs, eps=1e-4):
-        log_cf = self._log_cf(eps * w.expand_as(x_obs).unsqueeze(-2), x_obs)[..., 0]
-        return torch.nan_to_num(x_obs) @ w + (log_cf.imag / eps).to(w.dtype)
+    def z_mean(self, w, x_obs):
+        x = x_obs.double().reshape(-1, self.n_features)
+        _, mean = _mean(self.spn.root_node, w.double(), x)
+        return (torch.nan_to_num(x_obs) @ w + mean.flatten().view(x_obs.shape[:-1]).to(w.dtype))
 
     # distribution of z = w^T x given x_obs as a mixture of gaussians, one
     # component per induced tree: (p(k | x_obs), m, v), each of shape
     # (n_components,), or (B, n_components) for a batch
     @torch.no_grad()
-    def z_moments(self, w, x_obs):
+    def z_mixture(self, w, x_obs):
         squeeze = x_obs.dim() == 1
         x = x_obs.double().reshape(-1, self.n_features)
         log_weights, m, v = (part.flatten(start_dim=1) for part in _mixture(self.spn.root_node, w.double(), x))
@@ -168,6 +173,41 @@ def _log_cf(module, x, s):
         child = _log_cf(module.inputs, x, s)
         return torch.logsumexp(child[:, :, :, None, :] + module.log_weights.double()[None], dim=2)
     raise NotImplementedError(f"cf pass for {type(module).__name__}")
+
+# ── mean pass ─────────────────────────────────────────────────────────────────
+
+# the log value of every node given x_obs and the conditional mean of its part
+# of z = w^T x (missing features only), both (B, features, channels,
+# repetitions), for the rows of x (B, D). a sum weighs its children with the
+# posterior weights: sum weight times the value of the child, normalised
+def _mean(module, w, x):
+    if isinstance(module, Normal):
+        w, x = w[list(module.scope.query)], x[:, list(module.scope.query)]
+        loc, scale = module.loc.double(), module.scale.double()
+        mis = torch.isnan(x)[:, :, None, None]
+        log_density = torch.distributions.Normal(loc, scale).log_prob(torch.nan_to_num(x)[:, :, None, None])
+        return torch.where(mis, 0.0, log_density), torch.where(mis, w[:, None, None] * loc, 0.0)
+    if isinstance(module, Factorize):
+        # the leaves of a region multiplied: log values and means add
+        indices = module.indices.double()
+        return tuple(torch.einsum("bicr,ior->bocr", part, indices) for part in _mean(module.inputs[0], w, x))
+    if isinstance(module, SplitConsecutive):
+        parts = _mean(module.inputs, w, x)
+        size = module.inputs.out_shape.features // module.num_splits
+        return [tuple(part.split(size, dim=1)[i] for part in parts) for i in range(module.num_splits)]
+    if isinstance(module, ElementwiseProduct):
+        (lp1, m1), (lp2, m2) = _mean(module.inputs[0], w, x)
+        return lp1 + lp2, m1 + m2
+    if isinstance(module, RepetitionMixingLayer):
+        lp, m = _mean(module.inputs, w, x)
+        lp = lp + module.log_weights.double()[None]
+        return torch.logsumexp(lp, dim=3)[..., None], (torch.softmax(lp, dim=3) * m).sum(dim=3)[..., None]
+    if isinstance(module, Sum):
+        # (b, f, ci, r) -> (b, f, co, r)
+        lp, m = _mean(module.inputs, w, x)
+        lp = lp[:, :, :, None] + module.log_weights.double()[None]
+        return torch.logsumexp(lp, dim=2), (torch.softmax(lp, dim=2) * m[:, :, :, None]).sum(dim=2)
+    raise NotImplementedError(f"mean pass for {type(module).__name__}")
 
 
 # ── mixture pass ──────────────────────────────────────────────────────────────

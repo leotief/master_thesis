@@ -129,7 +129,7 @@ class GMM(nn.Module):
     #   m_k = w_obs^T x_obs + w_mis^T mu_k,mis
     #   v_k = sum over missing d of w_d^2 var_kd
     # returns (p(k | x_obs), m, v), each of shape (K,), or (B, K) for a batch
-    def z_moments(self, w, x_obs):
+    def z_mixture(self, w, x_obs):
         weights  = self._component_weights(x_obs)
         mis_mask = torch.isnan(x_obs)
         w_mis    = w * mis_mask
@@ -142,7 +142,7 @@ class GMM(nn.Module):
     # mean of z = w^T x given x_obs, i.e. sum_k p(k | x_obs) m_k, shape () or (B,).
     # the pcpg estimators use its sign to decide whether to flip w (sigma(z) = 1 - sigma(-z))
     def z_mean(self, w, x_obs):
-        weights, m, _ = self.z_moments(w, x_obs)
+        weights, m, _ = self.z_mixture(w, x_obs)
         return (weights * m).sum(dim=-1)
 
     # maximum likelihood by gradient descent (adam) instead of em, mainly because

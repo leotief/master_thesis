@@ -1,399 +1,132 @@
 \chapter{Discussion}
 \label{cha:discussion}
 
-\section{Variance Analysis}
+\section{Bias and Variance}
+\label{sec:bias-variance}
 
-\subsection{Conditional Sampling MC Estimator}
+We compare the bias and variance of MC with PCPG-MC, which samples both expectations, and PCPG, which computes both by quadrature.
+
+\subsection{MC Estimator}
 
 The MC estimator draws $N$ samples ${\xm}^{(i)} \sim p(\xm \mid \xo)$ and returns
 \[
   \widehat{p}_{\mathrm{MC}}(N) = \frac{1}{N}\sum_{i=1}^{N} \sigma\!\left(w^T x^{(i)}\right).
 \]
-Since $\sigma(\cdot) \in (0,1)$, the per-sample variance $\sigma^2_{\mathrm{MC}}
-:= \mathrm{Var}_{p(\xm\mid\xo)}\!\left[\sigma(w^T x)\right]$ is bounded by $1/4$,
-giving
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{MC}}(N)\right]
-  = \frac{\sigma^2_{\mathrm{MC}}}{N}
-  \;\leq\; \frac{1}{4N}.
-\]
-The $1/N$ factor follows from the standard variance-of-a-sample-mean identity:
-since the draws are i.i.d., the variance of their average is the per-sample
-variance divided by $N$.
-The bound $\sigma^2_{\mathrm{MC}} \leq 1/4$ holds because $\sigma(\cdot) \in (0,1)$:
+\paragraph{Bias.}
+MC is unbiased for all $N \geq 1$: sampling from $p(\xm \mid \xo)$ and averaging $\sigma(w^T x)$ is a direct Monte Carlo estimate of the target expectation, so $\E[\widehat{p}_{\mathrm{MC}}(N)] = p(y \mid \xo)$ exactly.
+
+\paragraph{Variance.}
+The draws are i.i.d., so the variance of their average is the per-sample variance
+$\sigma^2_{\mathrm{MC}} := \mathrm{Var}_{p(\xm\mid\xo)}\!\left[\sigma(w^T x)\right]$
+divided by $N$. Since $\sigma(\cdot) \in (0,1)$, the per-sample variance is bounded:
 for any $[0,1]$-valued random variable $Y$,
 \[
   \mathrm{Var}(Y) = \E[Y^2] - \E[Y]^2 \leq \E[Y] - \E[Y]^2 = \E[Y](1-\E[Y]) \leq \tfrac{1}{4},
 \]
-where the first inequality uses $Y^2 \leq Y$ on $[0,1]$ and the second uses
-$p(1-p) \leq 1/4$ for all $p \in [0,1]$, with equality at $p = 1/2$.
+using $Y^2 \leq Y$ on $[0,1]$ and $p(1-p) \leq 1/4$. Therefore
+\[
+  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{MC}}(N)\right] = \frac{\sigma^2_{\mathrm{MC}}}{N} \leq \frac{1}{4N}.
+\]
 
 \subsection{PCPG-MC Estimator}
 
-The PCPG-MC estimator with $M$ outer (PG) and $L$ inner (Gaussian) samples returns
+PCPG-MC draws $M$ outer samples $\gamma_j \sim \PG(1,0)$ and, for each of them, $L$ inner samples $u_{ij} \sim \mathcal{N}(0, \gamma_j)$ (Section~\ref{subsec:pcpg-mc}). With $Z := \tfrac{1}{2}\mathrm{Re}[f(u, \gamma)]$ for a single sample, it returns
 \[
-  \widehat{p}_{\mathrm{PCPG}}(M,L)
-  = \frac{1}{2ML}\sum_{j=1}^{M}\sum_{i=1}^{L}
-    \mathrm{Re}\!\left[h(\gamma_j, u_{ij})\right],
+  \widehat{p}_{\mathrm{PCPG\text{-}MC}}(M,L) = \frac{1}{ML}\sum_{j=1}^{M}\sum_{i=1}^{L} Z_{ij}.
 \]
-where
-$h(\gamma, u) := \exp\!\left(\tfrac{1}{8\gamma} + iu\!\left(\tfrac{1}{2\gamma}-c\right)\right)
-\cdot \phi_{\xm\mid\xo}(-uw_m)$,
-$c = w_o^T\xo$, and $u_{ij} \sim \mathcal{N}(0,\gamma_j)$.
 
-\subsubsection{Output range}
-A single sample ($M{=}L{=}1$) returns $\tfrac{1}{2}\mathrm{Re}[h(\gamma,u)]$.
+\paragraph{Bias.}
+PCPG-MC is unbiased as well. Both expectations are approximated by ordinary MC, so by linearity of expectation the estimator equals the true double integral, which is $p(y \mid \xo)$ by the PG and Hubbard--Stratonovich identities.
 
-The characteristic function $\phi(s) = \E[e^{isx}]$ satisfies $|\phi(s)| \leq 1$
-for all $s$.
+\paragraph{Output range.}
+Since $|\phi_{\xm\mid\xo}| \leq 1$, a single sample satisfies $|Z| \leq \tfrac{1}{2}e^{1/(8\gamma)}$.
+Because $\gamma \sim \PG(1,0)$ can be arbitrarily small, this bound is unbounded, so individual PCPG samples are not confined to $[0,1]$ and can be negative or exceed $1$, while every MC sample lies in $(0,1)$.
 
-Since $|h(\gamma,u)| = e^{1/(8\gamma)} \cdot |\phi(-uw_m)| \leq e^{1/(8\gamma)}$,
-the value lies in $\left[-\tfrac{1}{2}e^{1/(8\gamma)},\, +\tfrac{1}{2}e^{1/(8\gamma)}\right]$.
-
-Because $\gamma \sim \PG(1,0)$ can be arbitrarily small, $e^{1/(8\gamma)}$ is
-unbounded, so individual PCPG samples are not confined to $[0,1]$ and can be
-negative or exceed 1.
-
-By contrast, every individual MC sample lies in $(0,1)$.
-
-\subsubsection{Variance}
-
-The PCPG-MC estimator has two nested levels of randomness.
-\begin{enumerate}
-  \item \textbf{Outer level}: $M$ independent draws $\gamma_j \sim \PG(1,0)$.
-  \item \textbf{Inner level}: for each $j$, $L$ independent draws $u_{ij} \sim \mathcal{N}(0, \gamma_j)$.
-\end{enumerate}
-Let $Z = \tfrac{1}{2}\mathrm{Re}[h(\gamma, u)]$ denote a single ``raw'' sample.
-The estimator is the mean of $ML$ such values, grouped so that each outer sample
-$\gamma_j$ drives a block of $L$ inner values.
-
-\paragraph{Step 1: variance within one outer block.}
-Fix $\gamma_j$.  The $L$ inner samples $u_{ij}$ are i.i.d.\ $\mathcal{N}(0,\gamma_j)$, so the
-block average $\bar Z_j := \frac{1}{L}\sum_{i=1}^{L} Z_{ij}$
-has conditional variance $\sigma^2_{A,\gamma_j} / L$, where
-$\sigma^2_{A,\gamma} := \mathrm{Var}_{u \mid \gamma}[Z \mid \gamma]$.
-
-\paragraph{Step 2: law of total variance for $\bar Z_j$.}
-The $M$ blocks are independent, so it suffices to study a single block.
-Applying the law of total variance across the two levels of randomness:
+\paragraph{Variance.}
+The estimator has two nested levels of randomness. For a fixed $\gamma_j$, the average of its $L$ inner samples has the conditional variance $\sigma^2_{A,\gamma_j}/L$, with $\sigma^2_{A,\gamma} := \mathrm{Var}_{u \mid \gamma}[Z \mid \gamma]$. The law of total variance over both levels and the $M$ independent outer samples give
 \[
-  \mathrm{Var}[\bar Z_j]
-  = \underbrace{\E_\gamma\!\left[\mathrm{Var}[\bar Z_j \mid \gamma_j]\right]}_{\text{avg.\ inner variance}}
-  +\underbrace{\mathrm{Var}_\gamma\!\left[\E[\bar Z_j \mid \gamma_j]\right]}_{\text{outer PG variance}}
-  = \frac{\sigma^2_A}{L} + \sigma^2_B,
-\]
-where
-\[
-  \sigma^2_A := \E_\gamma\bigl[\sigma^2_{A,\gamma}\bigr]
-  \qquad\text{and}\qquad
+  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG\text{-}MC}}(M,L)\right] = \frac{\sigma^2_A}{ML} + \frac{\sigma^2_B}{M},
+  \qquad
+  \sigma^2_A := \E_\gamma\bigl[\sigma^2_{A,\gamma}\bigr],
+  \quad
   \sigma^2_B := \mathrm{Var}_\gamma\!\left[\E_{u \mid \gamma}[Z \mid \gamma]\right].
 \]
-$\sigma^2_A$ measures how much the inner Gaussian integral fluctuates for a typical PG draw.
-$\sigma^2_B$ measures how much the PG draw $\gamma$ itself shifts the result.
+$\sigma^2_A$ measures how much the inner expectation fluctuates for a typical $\gamma$, and $\sigma^2_B$ how much $\gamma$ itself shifts the result.
 
-\paragraph{Step 3: overall variance.}
-The estimator is $\widehat p = \frac{1}{M}\sum_{j=1}^{M}\bar Z_j$ with $M$ i.i.d.\ blocks, so
+\paragraph{The inner variance is infinite.}
+The problem comes from completing the square in Trick~2, which introduced the factor $e^{1/(8\gamma)}$. For a fixed $z$, the inner expectation is known exactly from the HS identity,
 \[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG}}(M,L)\right]
-  = \frac{1}{M}\,\mathrm{Var}[\bar Z_j]
-  = \frac{\sigma^2_A}{ML} + \frac{\sigma^2_B}{M}.
+  \E_{u \sim \mathcal{N}(0,\gamma)}\!\left[ e^{-iu(z - c)} \right] = \exp\!\left( -\tfrac{1}{2}\gamma \left( z - c \right)^2 \right) \approx e^{-1/(8\gamma)} \quad \text{for small } \gamma,
 \]
+which is tiny. Multiplied by $e^{1/(8\gamma)}$ it gives a value of order one. So the inner average has to produce a tiny number from terms of modulus one that almost cancel, and every bit of noise in that average is amplified by $e^{1/(8\gamma)}$, which is already about $2.7 \cdot 10^{5}$ for $\gamma = 0.01$.
+In terms of variance, a single inner sample has the second moment $e^{1/(4\gamma)}$. Near zero the density of $\PG(1,0)$ decays only like $e^{-1/(8\gamma)}$, which is not fast enough to compensate, so averaged over $\gamma$ the second moment is infinite: formally $\sigma^2_A = \infty$.
+Small values of $\gamma$ are rare, which is why the estimator still works in practice, but when they occur they produce extreme samples.
 
-\paragraph{Step 4: fixed-ratio budget.}
-Writing the total budget as $N = ML$ and the inner/outer ratio as $r = L/M$
-(so $M = \sqrt{N/r}$):
+\paragraph{The outer variance shrinks with more missing features.}
+For a GMM with diagonal covariances, the characteristic function of the missing features satisfies
 \[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG}}(M,L)\right]
-  = \frac{\sigma^2_A}{N} + \frac{\sigma^2_B\,\sqrt{r}}{\sqrt{N}}.
+  \bigl|\phi_{\xm\mid\xo}(-uw_m)\bigr| \leq \exp\!\left(-\frac{u^2}{2}\,D_m\right), \qquad D_m := \min_k \sum_{j \in \mathrm{mis}} w_j^2\,\sigma_{kj}^2,
 \]
-The first term decays as $O(1/N)$, the same rate as MC.
-The second term decays only as $O(1/\sqrt{N})$, which is \emph{slower}.
-For large $N$ the second term dominates, so PCPG-MC will have higher variance
-than MC whenever $\sigma^2_B > 0$.
+where $D_m$ is the variance of the missing part of $w^T x$. When $D_m$ is large, the integrand is nearly zero unless $|u|$ is small, so the inner expectation is close to zero for a wide range of $\gamma$ and hardly varies with it: $\sigma^2_B \approx 0$. More missing features increase $D_m$, so PCPG-MC gains relative to MC as the missing rate grows, while MC behaves the opposite way, since more missing features make $w^T x$ more random and increase $\sigma^2_{\mathrm{MC}}$.
 
-\paragraph{Why $\sigma^2_A$ can be large.}
-The problem comes from completing the square in Trick~2, which introduced the
-factors $e^{1/(8\gamma)}$ and $e^{iu/(2\gamma)}$ into the integrand. Both depend on
-$1/\gamma$ and become extreme for small $\gamma$.
+\subsection{PCPG Estimator}
 
-To see what happens, fix $z$. The inner expectation is then known exactly from the
-HS identity,
+\paragraph{Variance.}
+Replacing both expectations with quadrature (Gauss--PG for the outer, Gauss--Hermite for the inner) makes the estimator fully deterministic:
 \[
-  \E_{u \sim \mathcal{N}(0,\gamma)}\!\left[ e^{-i\left(z - \frac{1}{2\gamma}\right)u} \right]
-  = \exp\!\left( -\tfrac{1}{2}\gamma \left( z - \tfrac{1}{2\gamma} \right)^2 \right)
-  \approx e^{-1/(8\gamma)} \quad \text{for small } \gamma,
+  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG}}\right] = 0.
 \]
-which is tiny. Multiplied by $e^{1/(8\gamma)}$ it gives a value of order one. So
-the inner average has to produce a tiny number from terms of modulus one that
-almost cancel, and every bit of noise in that average is amplified by
-$e^{1/(8\gamma)}$. For $\gamma = 0.01$ this factor is already about
-$2.7 \cdot 10^{5}$.
+Its output is bounded, since the nodes $\gamma_j$ are fixed positive numbers and the factor $e^{1/(8\gamma_j)}$ is a known finite constant for each of them. The amplification is mild, because the smallest Gauss--PG node is not close to zero ($\gamma_{\min} \approx 0.046$ for 19 nodes, giving $e^{1/(8\gamma_{\min})} \approx 15$).
 
-In terms of variance, a single inner sample has modulus $e^{1/(8\gamma)}$, so its
-second moment is $e^{1/(4\gamma)}$. Near zero the density of $\PG(1,0)$ decays
-only like $e^{-1/(8\gamma)}$, which is not fast enough to compensate, so averaged
-over $\gamma$ the second moment is infinite: formally $\sigma^2_A = \infty$.
-Small values of $\gamma$ are rare, which is why the estimator still works in
-practice, but when they occur they produce extreme samples, and a moderately
-large $L$ is needed to suppress the inner noise.
+\paragraph{Bias.}
+Both expectations introduce a quadrature error. Gauss--Hermite with $N$ nodes is exact for polynomials in $u$ up to degree $2N - 1$, and for analytic integrands its error decays super-algebraically in $N$. The Gauss--PG rule with $M$ nodes is exact for polynomials in $\gamma$ up to degree $2M-1$. At $M = 19$ and $N \geq 20$, both errors are numerically negligible for moderate $|w^T x|$. For large positive $w^T x$ the outer error is amplified by $e^{z/2}$, which the sign flip (Section~\ref{subsec:sign-flip}) removes; with the flip, the outer rules fitted directly to the sigmoid (Appendix~\ref{subsubsec:sigmoid-fit}) are more accurate than Gauss--PG with fewer nodes. The inner Gauss--Hermite error for large $|w^T x|$ is not affected by the flip.
+The infinite inner variance of PCPG-MC does not disappear completely, however; it turns into quadrature error. With $u = \sqrt{2\gamma}\,t$ the inner integrand contains the factor $\exp(-i(z - c)\sqrt{2\gamma}\,t)$, which oscillates with the frequency $|z - c|\sqrt{2\gamma}$ in the Hermite variable $t$. This frequency is large when $\gamma$ is small, but also when $|w^T x|$ is large. A fixed number of nodes cannot resolve fast oscillations, and the exact inner value it should produce is then tiny, so the rule has to sum terms of modulus one to almost zero, and any error in that sum is multiplied by $e^{1/(8\gamma)}$. The damping of the characteristic function helps when many features are missing, because it suppresses large $|u|$; with few missing features and a confident prediction, the inner quadrature error can become significant.
 
-\paragraph{Optimal budget split.}
-Looking at the variance formula from Step~3,
-\[
-  \mathrm{Var} = \frac{\sigma^2_A}{ML} + \frac{\sigma^2_B}{M},
-\]
-the two terms respond to the budget differently.
-The first term shrinks when $L$ is large (many inner samples per PG draw).
-The second term shrinks when $M$ is large (many PG draws).
-Since $N = ML$ is fixed, making $L$ larger forces $M$ smaller and vice versa ---
-you cannot reduce both terms simultaneously.
+\subsection{Comparison}
 
-Substituting $M = N/L$ and minimising over $L$ at fixed $N$ gives the optimal split:
-\[
-  L^* = \sqrt{\frac{N\,\sigma^2_A}{\sigma^2_B}},
-  \qquad
-  M^* = \sqrt{\frac{N\,\sigma^2_B}{\sigma^2_A}},
-  \qquad
-  r^* := \frac{L^*}{M^*} = \frac{\sigma^2_A}{\sigma^2_B}.
-\]
-In words: use more inner samples than outer samples if and only if $\sigma^2_A > \sigma^2_B$.
-Because the inner variance is typically much larger (the $e^{1/(8\gamma)}$ blowup), the
-recommended ratio is $r = 4$, meaning four inner samples per PG draw.
-At $N = 1000$ and $r = 4$ this gives $M^* \approx 16$ outer draws and $L^* \approx 63$
-inner samples per draw; equal splitting ($M = L = 32$) would leave the large inner
-variance insufficiently averaged.
-
-The minimum variance at the optimal split is $2\sqrt{\sigma^2_A\sigma^2_B}/\sqrt{N}$,
-which is still $O(1/\sqrt{N})$.
-No choice of $r$ removes the $O(1/\sqrt{N})$ scaling as long as $\sigma^2_B > 0$.
-
-\paragraph{When does $\sigma^2_B$ become small?}
-Recall that $\sigma^2_B = \mathrm{Var}_\gamma\!\left[\E_{u\mid\gamma}[Z\mid\gamma]\right]$:
-it measures how much the value of the inner integral shifts as $\gamma$ changes.
-For a GMM with diagonal covariance, the CF of the missing features satisfies
-\[
-  \bigl|\phi_{\xm\mid\xo}(-uw_m)\bigr|
-  \;\leq\;
-  \exp\!\left(-\frac{u^2}{2}\,D_m\right),
-  \qquad
-  D_m := \sum_{j \in \mathrm{mis}} w_j^2\,\sigma_{kj}^2,
-\]
-where $D_m$ collects the variance of the missing part of $w^T x$.
-When $D_m$ is large, the CF decays very fast in $u$: the integrand $h(\gamma,u)$
-is nearly zero unless $|u|$ is small.
-For any fixed $\gamma$, the relevant $u$ values are of order $\sqrt{\gamma}$;
-large $D_m$ means even moderately large $\gamma$ is enough to zero out the integrand.
-As a result, the inner expectation $\E_{u\mid\gamma}[Z\mid\gamma]$ becomes nearly
-independent of $\gamma$ --- it is close to zero for a wide range of $\gamma$ values
-and hardly varies --- so $\sigma^2_B \approx 0$.
-
-\paragraph{Effect of missing ratio (fixed total dimension).}
-Increasing the fraction of missing features (larger $d_m$, same $d$) adds more terms
-to the sum defining $D_m$, directly increasing it.
-The CF damps more strongly, $\sigma^2_B$ decreases, and PCPG-MC recovers closer to
-$O(1/N)$ convergence.  MC behaves in the opposite way: more missing features make
-$w^T x$ more random, increasing $\sigma^2_{\mathrm{MC}}$.
-The PCPG family therefore \emph{gains} relative to MC as the missing ratio grows.
-
-\paragraph{Effect of total dimension (fixed missing ratio).}
-Increasing $d$ while keeping the missing ratio $\rho = d_m/d$ constant grows both
-$d_m$ and $d_o$ proportionally.
-The additional terms in $D_m$ are exactly offset by the fact that logistic-regression
-weights $w_j$ shrink with larger $d$ (the total discriminative power is spread over
-more features), so $D_m$ stays roughly constant and the CF damping does not improve.
-At fixed missing ratio, the rate improvement for PCPG-MC described above does
-\emph{not} automatically follow from adding more features; what matters is the
-missing-feature energy $D_m$, not the total dimension alone.
-
-\paragraph{Comparison.}
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{MC}}(N)\right] = \frac{\sigma^2_{\mathrm{MC}}}{N}
-  \;\leq\; \frac{1}{4N},
-  \qquad
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG}}(M,L)\right]
-  = \frac{\sigma^2_A}{N} + \frac{\sigma^2_B\sqrt{r}}{\sqrt{N}}.
-\]
-For low-missing-rate settings where $\sigma^2_B$ is non-negligible, PCPG-MC
-is less sample-efficient than MC.
-The $O(1/\sqrt{N})$ slowdown motivates replacing the inner MC with
-Gauss-Hermite quadrature (PCPG-GH).
-
-
-\subsection{PCPG-GH Estimator}
-
-\subsubsection{Variance}
-
-The PCPG-GH estimator keeps the $M$ outer PG draws $\gamma_j \sim \PG(1,0)$ but
-replaces each inner MC average with a $n_H$-point Gauss-Hermite rule.
-Because the inner quadrature is \emph{deterministic} given $\gamma_j$, the inner
-noise term $\sigma^2_A/L$ vanishes entirely.
-The only remaining source of variance is the outer PG draw:
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{GH}}(M)\right]
-  = \frac{\sigma^2_B}{M}.
-\]
-The total evaluation budget is $N = M\cdot n_H$ (each outer sample evaluates the CF
-at $n_H$ frequencies), so
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{GH}}(M)\right]
-  = \frac{\sigma^2_B\,n_H}{N},
-\]
-which is $O(1/N)$, matching the MC rate and eliminating the slow $O(1/\sqrt{N})$
-term that limits PCPG-MC.
-The factor $n_H$ is a fixed constant: with $n_H = 20$ nodes the per-budget
-variance is $20\,\sigma^2_B$, which is favourable whenever $\sigma^2_B$ is small
-compared to $\sigma^2_{\mathrm{MC}}/n_H$.
-
-In short, PCPG-GH is a strictly better choice than PCPG-MC at the same outer
-budget whenever $\sigma^2_A$ is non-negligible, because replacing the inner MC
-with quadrature costs nothing in outer samples and eliminates the dominant noise
-source.
-
-The problem does not disappear completely, however; it turns from variance into
-quadrature error. With $u = \sqrt{2\gamma}\,t$ the inner integrand contains the
-factor $\exp\!\left(-i\left(z - \tfrac{1}{2\gamma}\right)\sqrt{2\gamma}\,t\right)$,
-which oscillates with frequency $\left|z - \tfrac{1}{2\gamma}\right|\sqrt{2\gamma}$
-in the Hermite variable $t$. This frequency is large when $\gamma$ is small, but
-also when $|w^T x|$ is large. A fixed number of nodes cannot resolve fast
-oscillations, and the exact inner value
-$\exp(-\tfrac{1}{2}\gamma(z - \tfrac{1}{2\gamma})^2)$ it should produce is then
-tiny, so the rule has to sum terms of modulus one to almost zero. Any error in
-that sum is multiplied by $e^{1/(8\gamma)}$, which also amplifies rounding errors
-(in single precision, with relative accuracy $\approx 10^{-7}$, only about two
-digits are left at $\gamma = 0.01$). The CF damping helps when many features are
-missing, because it suppresses large $|u|$; with few missing features and a
-confident prediction, the inner quadrature error can become significant.
-
-\subsection{PCPG-Quad Estimator}
-
-Replacing both integrals with quadrature (Golub--Welsch for the outer PG
-integral, Gauss--Hermite for the inner) makes the estimator fully deterministic:
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{Quad}}\right] = 0.
-\]
-The estimator always returns the same value for the same inputs, and its
-output is bounded since the PG quadrature nodes $\gamma_j$ are fixed
-positive numbers --- the factor $e^{1/(8\gamma_j)}$ is a known finite
-constant for each node.
-The error is purely from quadrature approximation (bias), not variance.
-The amplification by $e^{1/(8\gamma)}$ is mild here, because the smallest
-Golub--Welsch node is not close to zero ($\gamma_{\min} \approx 0.046$ for 19
-nodes, giving $e^{1/(8\gamma_{\min})} \approx 15$). The oscillation problem of
-the inner Gauss--Hermite rule for large $|w^T x|$ remains, since the inner rule is
-the same as in PCPG-GH.
-
-\section{Bias Analysis}
-
-\subsection{MC Estimator}
-MC is unbiased for all $N \geq 1$: sampling from $p(\xm \mid \xo)$ and
-averaging $\sigma(w^T x)$ is a direct Monte Carlo estimate of the target
-expectation, so $\E[\widehat{p}_{\mathrm{MC}}(N)] = p(y \mid \xo)$ exactly.
-
-\subsection{PCPG-MC Estimator}
-PCPG-MC is also unbiased. Both integrals are approximated by ordinary MC,
-so by linearity of expectation the estimator equals the true double integral,
-which is $p(y \mid \xo)$ by the PG-sigmoid and Hubbard--Stratonovich
-identities.
-
-\subsection{PCPG-GH Estimator}
-The outer PG integral is still MC (unbiased). The inner integral is replaced
-by Gauss--Hermite quadrature, which introduces a small approximation error.
-For $N_H$ quadrature nodes, GH integrates polynomials of degree up to $2N_H - 1$
-exactly, and for smooth (analytic) integrands the error decays
-super-algebraically in $N_H$. In our setting the integrand is analytic in $u$,
-so the bias is negligible already for small $N_H$ (in practice $N_H \geq 20$
-is sufficient).
-
-\subsection{PCPG-Quad Estimator}
-Both integrals introduce a quadrature error. The Gauss--Hermite inner error
-is the same as for PCPG-GH. The Golub--Welsch PG quadrature with $M$ nodes
-integrates polynomials in $\gamma$ exactly up to degree $2M-1$; for smooth
-functions of $\gamma$ the error again decays rapidly with $M$. The maximum
-reliable order is $M \leq 19$ (limited by numerical precision in the moment
-computation). At $M = 19$ and $N_H \geq 20$, both errors are numerically
-negligible and the output closely matches the unbiased MC ground truth.
-This holds for moderate $|w^T x|$. For large positive $w^T x$ the outer error is
-amplified by $e^{z/2}$, which the sign flip from Section~\ref{subsec:sign-flip}
-removes; with the flip, the outer rule fitted directly to the sigmoid
-(Section~\ref{subsubsec:sigmoid-fit}) is more accurate than Golub--Welsch with
-fewer nodes. The inner Gauss--Hermite error for large $|w^T x|$ is not affected
-by the flip.
-
-\section{Comparison}
-\label{sec:comparison}
-
-Table~\ref{tab:estimator-comparison} summarises the properties of all four
+Table~\ref{tab:estimator-comparison} summarises the properties of the three
 estimators.
 
 \begin{table}[ht]
 \centering
-\caption{Summary of all four estimators. $N$ denotes the total evaluation
-budget. $r = L/M$ is the inner/outer ratio used by PCPG-MC.
-$n_H$ is the number of Gauss-Hermite nodes (fixed constant).
+\caption{Summary of the three estimators. MC uses $N$ samples, PCPG-MC $M$ outer
+and $L$ inner samples, PCPG $M$ Gauss--PG and $N$ Gauss--Hermite nodes.
 ``CF'' means the estimator requires evaluating $\phi_{\xm\mid\xo}$
 rather than drawing samples from $p(\xm \mid \xo)$.}
 \label{tab:estimator-comparison}
 \renewcommand{\arraystretch}{1.4}
-\begin{tabular}{lllll}
+\begin{tabular}{llll}
 \hline
-\textbf{Estimator} & \textbf{Variance} & \textbf{Bias} & \textbf{Rate} & \textbf{Needs} \\
+\textbf{Estimator} & \textbf{Variance} & \textbf{Bias} & \textbf{Needs} \\
 \hline
-MC
-  & $\sigma^2_{\mathrm{MC}}/N$
-  & $0$
-  & $O(1/N)$
-  & samples \\
-PCPG-MC
-  & $\dfrac{\sigma^2_A}{N} + \dfrac{\sigma^2_B\sqrt{r}}{\sqrt{N}}$
-  & $0$
-  & $O(1/\sqrt{N})$
-  & CF \\[6pt]
-PCPG-GH
-  & $\sigma^2_B\,n_H / N$
-  & $O(e^{-c\,n_H})$
-  & $O(1/N)$
-  & CF \\
-PCPG-Quad
-  & $0$
-  & $O(e^{-c\,M})$
-  & deterministic
-  & CF \\
+MC      & $\sigma^2_{\mathrm{MC}}/N \leq 1/(4N)$ & $0$ & samples \\
+PCPG-MC & $\sigma^2_A/(ML) + \sigma^2_B/M$, with $\sigma^2_A = \infty$ & $0$ & CF \\
+PCPG    & $0$ & quadrature error & CF \\
 \hline
 \end{tabular}
 \end{table}
 
 \paragraph{Bias.}
-MC and PCPG-MC are exactly unbiased. PCPG-GH and PCPG-Quad introduce small
-quadrature errors that are negligible at the parameter choices used
-($n_H \geq 20$, $M_{\mathrm{PG}} \leq 19$).
+MC and PCPG-MC are exactly unbiased. PCPG introduces a quadrature error, which
+decays fast in the number of nodes and is negligible at the parameter choices
+used ($N \geq 20$ Gauss--Hermite and $M = 19$ Gauss--PG nodes), as long as
+$|w^T x|$ is moderate.
 
-\paragraph{Variance and convergence rate.}
-MC achieves $O(1/N)$ variance, bounded above by $1/(4N)$.
-PCPG-GH also achieves $O(1/N)$, but the effective constant is $\sigma^2_B\,n_H$:
-it is preferable to MC when $\sigma^2_B$ is small, which happens precisely when
-many features are missing and the CF damps strongly.
-PCPG-MC is the only estimator with a slower $O(1/\sqrt{N})$ rate; the outer PG
-variance $\sigma^2_B$ introduces a $\sigma^2_B\sqrt{r}/\sqrt{N}$ term that
-persists regardless of how the budget is split between $M$ and $L$.
-In the high-missing-data regime $\sigma^2_B \approx 0$ and PCPG-MC recovers
-$O(1/N)$, but in that regime PCPG-GH is still at least as good.
-PCPG-Quad has zero variance by construction; its ``error'' is pure bias from
-finite-order quadrature, which decays exponentially in the number of nodes and
-is negligible above $n_H = 20$ and $M_{\mathrm{PG}} = 19$.
+\paragraph{Variance.}
+MC has the variance $\sigma^2_{\mathrm{MC}}/N$, bounded by $1/(4N)$. PCPG-MC is
+unbiased as well, but its inner variance $\sigma^2_A$ is formally infinite because
+of the factor $e^{1/(8\gamma)}$, so rare small values of $\gamma$ produce extreme
+samples, and its outer variance $\sigma^2_B$ only becomes small when many features
+are missing. PCPG has no variance at all: its error is pure bias from the
+quadrature.
 
 \paragraph{When to use which.}
-MC is the simplest and most reliable choice when sampling from $p(\xm \mid \xo)$
-is easy and low variance is the priority.
-PCPG-GH is the natural first upgrade: it eliminates the inner MC noise at no extra
-outer-sample cost and always achieves $O(1/N)$; use it whenever evaluating the CF
-is cheaper than drawing samples.
-PCPG-MC should be preferred over PCPG-GH only when the CF is cheap but computing
-the Gauss-Hermite nodes is costly, or as a reference implementation to isolate
-$\sigma^2_A$ empirically.
-PCPG-Quad is the right choice when a fully deterministic, reproducible result
-is required --- for example when differentiating through the estimator or when
-multiple evaluations at the same point must agree exactly.
-
+MC is the simplest choice when sampling from $p(\xm \mid \xo)$ is easy. PCPG-MC
+mainly serves as a reference: it shows that the identities behind PCPG are exact,
+but sampling the two expectations is not competitive. PCPG is the method we
+propose: it only needs the characteristic function, and it is deterministic, so
+repeated evaluations at the same point agree exactly and it can be differentiated,
+for example when training through it.
 
 \section{Effect of Dimensionality}
 \label{sec:dimensionality}
@@ -461,10 +194,10 @@ $1/2$ only for the rare very small $\gamma$ draws.
 As $D_m$ grows, the threshold shifts to smaller $\gamma$ and a larger fraction of
 PG draws gives $\E[Z|\gamma]\approx 0$, so the variation of this function over
 $\gamma$ --- which is $\sigma^2_B$ --- shrinks.
-\emph{PCPG variance decreases with the missing ratio.}
+\emph{The variance of PCPG-MC decreases with the missing ratio.}
 
 The same narrowing of the integrand reduces the Gauss--Hermite quadrature error
-for PCPG-GH: a more concentrated integrand is easier to integrate accurately
+for PCPG: a more concentrated integrand is easier to integrate accurately
 with a fixed number of nodes, so the bias also decreases with $\rho$.
 
 \paragraph{Effect of total dimension (fixed missing ratio $\rho$).}
@@ -501,83 +234,24 @@ matters most.
 
 The argument of Section~\ref{sec:dimensionality} for a growing total dimension $d$
 assumes a well-fitted classifier, whose individual weights shrink like
-$O(1/\sqrt{d})$, so that $z = w^T x$ stays on the same scale. In this section we
-show experimentally that this assumption matters. With the default
-regularisation of the logistic regression, the norm of $w$ grows with $d$, and
-PCPG with a fixed number of nodes loses accuracy at high dimensions. When the
-norm of $w$ is held fixed, the effect disappears.
-
-\paragraph{Setup.}
-The data are generated with scikit-learn's \texttt{make\_classification}:
-10{,}000 samples, of which 2 features are informative, 2 are linear combinations of
-these, and all others are independent noise; 8{,}000 samples are used for
-training and 2{,}000 for testing. The density $p(x)$ is a GMM with $K = 4$
-diagonal components, the classifier a logistic regression without intercept. The
-number of features is $d \in \{5, 16, 50, 158, 500, 1581, 5000\}$, a factor
-$\sqrt{10}$ apart. For every test point a fraction $\rho \in \{0.3, 0.5, 0.8\}$
-of the features is hidden at random. MC and PCPG-Quad get the same budget of
-$1{,}216$ evaluations: MC draws $1{,}216$ samples, and PCPG-Quad uses $M = 19$
-Golub--Welsch nodes and $n_H = 64$ Gauss--Hermite nodes. The error is the RMSE over 50 test
-points against the exact value, which we compute from the Gaussian mixture of
-$z \mid \xo$ (Section~\ref{subsec:gmm-direct}) with adaptive quadrature. The time
-is that of one batched call over all 2{,}000 test points on a GPU.
-
-\begin{figure}[htb]
-  \centering
-  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison.pdf}
-  \caption[Comparison with the default classifier]{Mean imputation, MC and
-    PCPG-Quad against the number of features $d$, for 30\%, 50\% and 80\%
-    missing features, with the default logistic regression ($C = 1$). Top: RMSE
-    over 50 test points. Bottom: time for all 2{,}000 test points. MC and
-    PCPG-Quad use a budget of $1{,}216$ evaluations.}
-  \label{fig:comparison-default}
-\end{figure}
-
-\paragraph{Observation.}
-Figure~\ref{fig:comparison-default} shows the result with scikit-learn's default
-regularisation ($C = 1$). Up to $d = 158$, PCPG-Quad reaches an RMSE between
-$2 \cdot 10^{-7}$ and $2 \cdot 10^{-5}$, two to four orders of magnitude below MC,
-whose error stays between $3 \cdot 10^{-3}$ and $1.3 \cdot 10^{-2}$ at every $d$.
-From $d = 500$ on, the error of PCPG-Quad rises: to $1.2 \cdot 10^{-3}$ and
-$1.7 \cdot 10^{-3}$ at 30\% and 50\% missing for $d = 500$, to between
-$4 \cdot 10^{-3}$ and $1.1 \cdot 10^{-2}$ for $d = 1581$, and to between
-$2 \cdot 10^{-2}$ and $4 \cdot 10^{-2}$ for $d = 5000$, where it is worse than MC.
-The errors of MC and of mean imputation hardly depend on $d$.
+$O(1/\sqrt{d})$, so that $z = w^T x$ stays on the same scale. The experiments of
+Section~\ref{sec:results-estimate} show that this assumption matters: with the
+default regularisation, the norm of $w$ grows with $d$, and PCPG with a fixed
+number of nodes loses accuracy at high dimensions. When the norm of $w$ is held
+fixed, the effect disappears.
 
 \paragraph{Cause: the classifier overfits.}
 Only four features carry information about the label, so every additional
 feature is noise. With $C = 1$ the logistic regression fits this noise once there
 are many features compared to the 8{,}000 training points
-(Table~\ref{tab:classifier-norm}). The norm of $w$ is about $2.2$ up to $d = 158$
-and grows to $2.7$, $6.6$ and $9.5$ at $d = 500$, $1581$ and $5000$. At
+(Table~\ref{tab:classifier-norm}). The norm of $w$ grows from about $2.2$ up to
+$d = 158$ to $2.7$, $6.6$ and $9.5$ at $d = 500$, $1581$ and $5000$. At
 $d = 5000$ the classifier reaches 100\% training accuracy, but only 80.5\% test
 accuracy, with a test log loss of $1.22$. A larger $w$ makes $z = w^T x$ larger. At
 $d = 5000$, the median of $|m_k|$ over all test points and components is between
 $8.6$ and $14.9$ (depending on the missing rate), and the median standard
 deviation $\sqrt{v_k}$ between $2.8$ and $4.8$. At $d = 16$ they are between $2.4$
 and $2.7$, and between $0.5$ and $1.2$.
-
-\begin{table}[ht]
-\centering
-\caption[The default logistic regression]{The logistic regression with the
-default regularisation ($C = 1$) for every number of features $d$: the norm of
-$w$, and accuracy and log loss on the 8{,}000 training and 2{,}000 test points.}
-\label{tab:classifier-norm}
-\renewcommand{\arraystretch}{1.2}
-\begin{tabular}{rrrrr}
-\hline
-$d$ & $\|w\|$ & \textbf{train acc.} & \textbf{test acc.} & \textbf{test log loss} \\
-\hline
-5    & $2.2$ & $0.891$ & $0.887$ & $0.312$ \\
-16   & $2.3$ & $0.894$ & $0.875$ & $0.314$ \\
-50   & $2.3$ & $0.894$ & $0.888$ & $0.314$ \\
-158  & $2.4$ & $0.894$ & $0.875$ & $0.311$ \\
-500  & $2.7$ & $0.902$ & $0.874$ & $0.337$ \\
-1581 & $6.6$ & $0.938$ & $0.817$ & $0.764$ \\
-5000 & $9.5$ & $1.000$ & $0.805$ & $1.215$ \\
-\hline
-\end{tabular}
-\end{table}
 
 \paragraph{Why a larger $z$ is harder for PCPG.}
 Consider one component of the mixture, $z \mid k \sim \mathcal{N}(m_k, v_k)$, and
@@ -605,7 +279,7 @@ $e^{1/(8\gamma)}$.
 
 Because of the flip (Section~\ref{subsec:sign-flip}), $m_k$ is mostly negative,
 so $a = 1/\sqrt{2\gamma} + \sqrt{2\gamma}\,|m_k|$ grows linearly in $|m_k|$, and
-thereby in $\|w\|$. The 19 Golub--Welsch nodes reach up to $\gamma \approx 12.8$.
+thereby in $\|w\|$. The 19 Gauss--PG nodes reach up to $\gamma \approx 12.8$.
 There, $|m_k| = 2.4$ gives $a \approx 12$, which 64 nodes still roughly resolve,
 while $|m_k| = 10$ gives $a \approx 50$, far more than 64 nodes can handle. The
 largest nodes carry small weights, so the rule of thumb is only a rough guide,
@@ -615,36 +289,16 @@ the integrand narrower, which also needs more nodes.
 Two measurements support this. At $d = 500$ and 30\% missing, doubling the inner
 nodes to $n_H = 128$ reduces the error from $1.2 \cdot 10^{-3}$ to
 $1.5 \cdot 10^{-5}$, so there the inner rule is the limit. At $d = 5000$, neither
-$n_H = 256$ nor the maximal $M = 19$ outer nodes bring the error below about
+$n_H = 256$ nor $M = 19$ outer nodes bring the error below about
 $7 \cdot 10^{-3}$: the scale of $z$ exceeds what both rules cover.
 
-\begin{figure}[htb]
-  \centering
-  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_fixed_norm.pdf}
-  \caption[Comparison with a fixed weight norm]{The same comparison as in
-    Figure~\ref{fig:comparison-default}, with the weights of the logistic
-    regression rescaled to unit norm, $w / \|w\|$, for every number of features
-    $d$.}
-  \label{fig:comparison-fixed-norm}
-\end{figure}
-
 \paragraph{Holding the norm fixed.}
-To separate the effect of $d$ from that of $\|w\|$, we rescale the weights of
-the default classifier to unit norm, $w \leftarrow w / \|w\|$, for every $d$.
-This keeps the direction of $w$, and with it every decision of the classifier,
-and only puts $z = w^T x$ on the same scale for every $d$.
-
 With the norm held fixed (Figure~\ref{fig:comparison-fixed-norm}), the error of
-PCPG-Quad no longer depends on $d$. It lies between $3.6 \cdot 10^{-8}$ and
-$6 \cdot 10^{-8}$ for every $d$ and missing rate, at the precision of the single
-precision floating point numbers used in the computation. This includes
-$d = 1581$ and $d = 5000$, where the same classifier with its original norm gave
-errors of up to $4 \cdot 10^{-2}$. MC stays between $2 \cdot 10^{-3}$ and
-$9 \cdot 10^{-3}$. The scale of $z$ thus explains the whole loss of accuracy at
-high dimensions. Since the unit norm is smaller than the norm of about $2.2$ that
-the default classifier has at low dimensions, PCPG-Quad is also more accurate
-here than in Figure~\ref{fig:comparison-default} at small $d$.
-
+PCPG is at the precision of the single precision floating point numbers used in
+the computation, for every $d$. The scale of $z$ thus explains the whole loss of
+accuracy at high dimensions. Since the unit norm is smaller than the norm of
+about $2.2$ that the default classifier has at low dimensions, PCPG is also more
+accurate there than with the default classifier at small $d$.
 Rescaling is a controlled experiment, not a way to fix the classifier, since it
 keeps the overfitted direction of $w$. In practice, stronger regularisation keeps
 the norm small and also improves the classifier: with $C$ chosen such that
@@ -652,16 +306,13 @@ $\|w\| = 2.2$ at $d = 5000$, the test accuracy rises from 80.5\% to 83.6\% and
 the test log loss falls from $1.22$ to $0.40$.
 
 \paragraph{Runtime.}
-The bottom rows of both figures are the same, since the time does not depend on
-$w$. For all methods it grows linearly in $d$. At the same budget, PCPG-Quad
-evaluates the characteristic function at $1{,}216$ frequencies per test point and
-MC draws $1{,}216$ samples. From $d = 16$ on, PCPG-Quad is about twice as fast as
-MC in our implementation, for example about $1.4$\,s against $3.0$\,s at
-$d = 5000$, mostly because MC draws all $d$ features of every sample, including
-the observed ones.
+At the same budget, PCPG evaluates the characteristic function at $1{,}216$
+frequencies per test point and MC draws $1{,}216$ samples. PCPG is faster in our
+implementation mostly because MC draws all $d$ features of every sample,
+including the observed ones.
 
 \paragraph{Summary.}
-The accuracy of PCPG-Quad with a fixed number of nodes depends on the scale of
+The accuracy of PCPG with a fixed number of nodes depends on the scale of
 $z = w^T x$, that is on $m_k$ and $v_k$ relative to the quadrature rules, and not
 on the number of features as such. The argument of
 Section~\ref{sec:dimensionality} holds for a regularised classifier. An overfitted
@@ -669,6 +320,89 @@ classifier makes $z$ large, and then more nodes are needed than a rule chosen fo
 small $z$ provides. In practice, the classifier should be regularised, which also
 improves it. Alternatively, the number of inner nodes can be chosen per test point
 from the largest $|m_k|$ and $v_k$.
+
+\section{Training with Missing Features}
+\label{sec:disc-training}
+
+This section explains the training results of Section~\ref{sec:training}.
+
+\subsection{Monte Carlo Inside the Loss}
+\label{subsec:training-mc}
+
+The obvious alternative to PCPG is to estimate the expectation in the loss by sampling,
+\[
+  \hat p = \frac{1}{S} \sum_{s=1}^{S} \sigma\!\left(w^T x^{(s)}\right),
+  \qquad x^{m,(s)} \sim p(\xm \mid \xo),
+\]
+with new samples in every step. The samples do not depend on $w$, so the
+gradient is simply the average of the gradients at the samples. The estimate
+$\hat p$ itself is unbiased, but the loss is not: since $\log$ is concave,
+Jensen's inequality gives
+\[
+  \E\left[ -\log \hat p \right] \geq -\log \E[\hat p] = -\log p ,
+\]
+so the Monte Carlo loss is too large on average. A second-order expansion of
+$\log$ around $p$ gives the size of this bias,
+\[
+  \E\left[ -\log \hat p \right] + \log p \approx
+  \frac{\mathrm{Var}[\hat p]}{2 p^2} = \frac{\mathrm{Var}[\sigma(z)]}{2 S p^2},
+\]
+where $\mathrm{Var}[\sigma(z)]$ is the variance of the prediction over the missing
+features. The bias decreases like $1/S$, but it does not average out over the
+steps of the optimisation. It acts as an additional penalty on how much the
+prediction depends on the missing features, and it is minimised by making $w$
+smaller. The Monte Carlo objective therefore has its optimum at a smaller $w$
+than the marginal likelihood. For $S = 1$ the loss is the average loss over a
+single random completion of every point, $\E[-\log \sigma(\pm w^T x)]$, which is
+the objective of training on randomly imputed data (multiple imputation). With
+growing $S$, the Monte Carlo objective moves from this objective to the
+marginal likelihood.
+
+\subsection{Interpretation of the Results}
+
+\paragraph{The marginal likelihood is reached.}
+The baselines minimise a different objective, so their gap does not shrink with
+more training: it is the price of ignoring the uncertainty of the missing
+features. PCPG follows Exact closely, i.e.\ its quadrature error does not affect
+the training. MC lies slightly above it: with $S = 320$ samples its bias
+$\mathrm{Var}[\sigma(z)] / (2 S p^2)$ is small, but visible. At both ends of the
+range of $d$ the gaps are larger for all three methods including Exact, so the
+cause is the optimiser and not the expectation: Adam with a fixed learning rate
+does not settle exactly at the optimum. At 5 features it has to reach large
+weights ($\lVert w^* \rVert \approx 3$), and Exact stops $7.8 \cdot 10^{-4}$ above
+the optimum at 30\% missing, more than the complete-data classifier
+($1.1 \cdot 10^{-4}$). At 100 features there are many weights, and all three stop
+at about $6 \cdot 10^{-4}$ for 30\% and 50\% missing. PCPG falls behind Exact
+with 5 features and 30\% missing because only a single feature is hidden there,
+so $z \mid \xo$ is concentrated and the characteristic function hardly decays,
+which is the hardest case for the fixed nodes of PCPG.
+
+\paragraph{Accuracy.}
+On incomplete test points, the complete-data classifier is optimal for complete
+points, not for the expected prediction it is used with, while the marginal
+likelihood trains exactly for that prediction. This is why the marginal
+likelihood models are more accurate at 80\% missing. On complete test points,
+training on incomplete data necessarily loses some of the classifier, and the
+loss grows with the missing rate.
+
+\paragraph{Adam against an exact solver.}
+At 5 features, Adam does not reach the optimum of the logistic regression. The
+objective gaps of the Adam and scikit-learn fits then differ in both directions,
+since the gap is measured on the marginal likelihood and not on the objective the
+two fits minimise. This is the same limitation of the optimiser as for Exact, and
+it does not change the comparison between the models.
+
+\paragraph{Summary.}
+PCPG makes the marginal likelihood usable as a training loss: the training with
+PCPG reaches the same classifier as training with the exact expectation, without
+sampling and without the systematic bias of Monte Carlo. Training on the
+marginal likelihood makes the classifier better suited to incomplete test
+points than training on complete data, with gains of up to two percentage points
+of accuracy at 80\% missing features. On complete test points, it loses less
+than mean imputation at high missing rates and moderate dimensions. In terms of
+accuracy, the differences between the methods are small on this data, while in
+terms of the objective they are clear: only the marginal likelihood models
+reach its optimum.
 
 \section{Special Case: Closed Form for GMMs}
 \label{sec:gmm-closed-form}
@@ -699,7 +433,7 @@ square in $z$ gives
 \]
 For $v_k = 0$ (nothing missing) this reduces to the PG identity itself, as it
 should. Only the outer integral over $\gamma$ remains, and it can be handled with
-MC or the Golub--Welsch rule as before. The integrand is real, positive and
+MC or the Gauss--PG rule as before. The integrand is real, positive and
 bounded, so the small-$\gamma$ problems discussed above do not occur, and each
 value of $\gamma$ costs $K$ operations instead of $K \cdot n_H$.
 
@@ -712,7 +446,6 @@ $z$ and factorises, which is exactly why PCPG needs the characteristic function.
 For GMMs the closed form is therefore mainly useful as an exact reference: it
 isolates the error introduced by the inner quadrature of PCPG.
 
-\input{chapters/training}
 
 \section{Related Work}
 

@@ -1,72 +1,14 @@
 \section{Training with Missing Features}
 \label{sec:training}
 
-So far the classifier $w$ was trained on complete data, and features were only
-missing at test time. In practice, the training data are often incomplete as
-well. In this section we show that the expectation
-$\E_{p(\xm \mid \xo)}[\sigma(w^T x)]$ then also appears in training, and that
-PCPG can be used inside the training loss. We compare this with the usual ways
-of training a logistic regression on incomplete data.
+In this section we train a logistic regression on incomplete data with PCPG
+inside the loss (Section~\ref{sec:training-pcpg}) and compare it with the usual
+ways of training on incomplete data.
 
-\subsection{Training in Two Stages}
-\label{subsec:training-stages}
+\subsection{Monte Carlo Inside the Loss}
+\label{subsec:training-mc}
 
-\paragraph{Stage 1: the density.}
-The density model $p(x)$ is fit first, on the incomplete training points, by
-maximising the likelihood of the observed features,
-\[
-  \log p(\xo) = \log \int p(\xo, \xm) \, \mathrm{d}\xm .
-\]
-For a GMM and for a PC this marginal is tractable: the missing features are
-integrated out by leaving out their factors (for a PC, by setting their leaves
-to one). This stage therefore needs neither PCPG nor sampling. Afterwards $p(x)$
-is kept fixed.
-
-\paragraph{Stage 2: the classifier.}
-The classifier is fit to the prediction that is made at test time. For a training
-point with observed features $\xo_n$ and label $y_n$, this prediction is the
-expected prediction
-\[
-  p(y_n = 1 \mid \xo_n) = \E_{p(\xm \mid \xo_n)} \left[ \sigma(w^T x) \right],
-  \qquad p(y_n = 0 \mid \xo_n) = 1 - p(y_n = 1 \mid \xo_n),
-\]
-and $w$ minimises the negative log-likelihood of the labels under it, the
-\emph{marginal likelihood} loss,
-\begin{equation}
-  J(w) = -\frac{1}{n} \sum_{n'=1}^{n} \log p(y_{n'} \mid \xo_{n'})
-         + \frac{1}{2 C n} \lVert w \rVert^2 .
-  \label{eq:marginal-likelihood}
-\end{equation}
-The second term is the $L_2$ penalty of scikit-learn's logistic regression, scaled to
-one training point, with $C = 1$. It keeps $w$ finite and makes the optimum
-unique. Without missing features, $J$ is exactly the objective of an ordinary
-logistic regression.
-
-\paragraph{The expectation inside the loss.}
-The loss contains the expectation for every training point, and it has to be
-evaluated in every step of the optimisation, together with its gradient. With
-PCPG, the expectation is
-\[
-  p(y = 1 \mid \xo) \approx
-  \frac{1}{2\sqrt{\pi}} \sum_{j=1}^{M} w_j \sum_{i=1}^{N} \omega_i \,
-  \exp\!\left(\frac{1}{8\gamma_j} + i u_{ij}
-    \left(\frac{1}{2\gamma_j} - w_o^T \xo\right)\right)
-  \phi_{\xm \mid \xo}\!\left(-u_{ij}\, w_m\right),
-  \qquad u_{ij} = \sqrt{2\gamma_j}\, t_i ,
-\]
-(Section~\ref{subsec:pg-quadrature}). The classifier $w$ enters it only through
-the phase $w_o^T \xo$ and through the frequencies $-u_{ij} w_m$ at which the
-characteristic function is evaluated. For a GMM the characteristic function is a
-smooth closed-form expression in these frequencies
-(Section~\ref{subsec:gmm-cf}), and for a PC it is computed by one pass through the
-circuit. The estimate is therefore a smooth function of $w$, and its gradient is
-obtained by automatic differentiation. Since the nodes are fixed, the estimate is
-also deterministic: every evaluation of the loss at the same $w$ gives the same
-value. The loss is the exact marginal likelihood up to the quadrature error of
-PCPG.
-
-\paragraph{Monte Carlo inside the loss.}
-The obvious alternative is to estimate the expectation by sampling,
+The obvious alternative to PCPG is to estimate the expectation in the loss by sampling,
 \[
   \hat p = \frac{1}{S} \sum_{s=1}^{S} \sigma\!\left(w^T x^{(s)}\right),
   \qquad x^{m,(s)} \sim p(\xm \mid \xo),
@@ -129,7 +71,7 @@ training points they see and in the prediction their loss is built from
 Complete data   & complete $x$                 & $\sigma(w^T x)$ \\
 Mean imputation & $\xo$, $\xm$ filled by means & $\sigma(w^T x)$ \\
 MC              & $\xo$                        & $\frac{1}{S}\sum_s \sigma(w^T x^{(s)})$ \\
-PCPG            & $\xo$                        & PCPG-Quad, $M \times N$ nodes \\
+PCPG            & $\xo$                        & PCPG, $M \times N$ nodes \\
 Exact           & $\xo$                        & $\sum_k \tilde\pi_k(\xo) \E_{\mathcal{N}(m_k, v_k)}[\sigma(z)]$ \\
 \hline
 \end{tabular}

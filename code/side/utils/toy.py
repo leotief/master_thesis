@@ -69,7 +69,7 @@ def objective(predict, w, x, y, n_train):
 
 # the optimum of the exact loss, and the two logistic regressions on complete
 # points: on all complete points (an oracle), and with the gaps filled by the means
-w_star = optimum(objective, exact.differentiable, x_missing, y, N_POINTS, torch.device("cpu"))
+w_star = optimum(objective, exact.estimate_diff, x_missing, y, N_POINTS, torch.device("cpu"))
 x_filled = torch.where(torch.isnan(x_missing), x_missing.nanmean(dim=0), x_missing)
 w_complete = LogisticRegression(C=C, fit_intercept=False).fit(x_np, y_np).coef_[0]
 w_mean = LogisticRegression(C=C, fit_intercept=False).fit(x_filled.numpy(), y_np).coef_[0]
@@ -80,7 +80,7 @@ w_np = w_star.numpy()
 lines = np.flatnonzero(np.isnan(x_missing_np[:, 1]))
 with torch.no_grad():
     weights = px._component_weights(x_missing[lines]).numpy()
-    prediction = exact(w_star, x_missing[lines])
+    prediction = exact.estimate(w_star, x_missing[lines])
 means = px.means.numpy()[:, 1]
 by_weight = np.argsort(-weights, axis=1)
 second = np.take_along_axis(weights, by_weight[:, 1:2], axis=1)[:, 0]
@@ -104,7 +104,7 @@ line_density = (weight[:, None] * np.exp(-(X2 - means[:, None])**2 / (2 * stds[:
                 / np.sqrt(2 * np.pi * stds[:, None]**2)).sum(axis=0)
 line_sigmoid = 1 / (1 + np.exp(-(w_np[0] * x1 + w_np[1] * X2)))
 with torch.no_grad():
-    answer = float(exact(w_star, x_point))
+    answer = exact.estimate(w_star, x_point)
 mean_x2 = float(x_filled[point, 1])
 
 # the density of the data on a grid

@@ -1,0 +1,183 @@
+\chapter{Intuitive Derivations}
+\label{app:intuition}
+
+\section{Bells as Waves}
+\label{app:waves}
+
+The Hubbard-Stratonovich identity writes a bell as an expectation of $\exp(-iu(z - c))$ over $u \sim \mathcal{N}(0, \gamma)$, with $c = \frac{1}{2\gamma}$.
+To see the waves, split each term of the expectation with Euler's formula $e^{-ix} = \cos x - i \sin x$:
+\[
+  \exp \left(-iu \left(z - c\right) \right) = \cos \big(u (z - c)\big) - i \sin \big(u (z - c)\big).
+\]
+The sine is odd in $u$, and since $u$ and $-u$ are equally likely under $\mathcal{N}(0, \gamma)$, it cancels and only the cosine remains:
+\[
+  \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right) = \exp \left(\frac{1}{8\gamma}\right) \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \cos \big(u (z - c)\big) \right].
+\]
+
+\section{The Characteristic Function as an Area}
+\label{app:cf-area}
+
+The characteristic function is used to compute $\E_{p(\xm \mid \xo)} \left[ \exp \left(-iu \left(z - c\right) \right) \right]$.
+The integrand depends on $\xm$ only through $z = w^T x$, so we can take the expectation over the distribution $p(z)$ of $z$ instead.
+The real part of $\exp(-iu(z - c))$ is the wave $\cos(u(z - c))$ from Appendix~\ref{app:waves}:
+\[
+  \mathrm{Re} \left[ \E_{p(\xm \mid \xo)} \left[ \exp \left(-iu \left(z - c\right) \right) \right] \right] = \E_{p(z)} \left[ \cos \big(u (z - c)\big) \right] = \int \cos \big(u (z - c)\big)\, p(z) \, \mathrm{d}z.
+\]
+This is the area under the wave times $p(z)$, where parts below zero count negatively.
+So for every frequency $u$, the characteristic function gives the signed area under the wave times $p(z)$.
+
+\section{Other Rules for the PG Integral}
+\label{app:pg-rules}
+
+Besides Gauss--PG (Section~\ref{subsec:pg-quadrature}), we consider three
+families of rules for the outer integral over $\gamma \sim \PG(1,0)$: trapezoid,
+Gauss--Legendre and Gauss quadrature, each with the nodes spaced in $\gamma$ and in
+$\log \gamma$, and rules whose weights are fitted to the sigmoid. All rules
+except Gauss--PG need the density $p$ of $\PG(1,0)$ pointwise. It has no closed
+form, but two alternating series, one converging fast for small and one for large
+$\gamma$, evaluate it to machine precision. All weights are normalised to sum to
+one.
+
+\subsection{Spaced in $\gamma$ and in $\log \gamma$}
+
+\paragraph{Trapezoid.}
+The composite trapezoid rule on $[0, T]$ with $n$ equally spaced nodes $\gamma_j$
+and spacing $h$ has the weights $w_j \propto c_j\, p(\gamma_j)\, h$, with
+$c_j = \frac{1}{2}$ at both ends and $1$ otherwise. We use $T = 5$, above which
+$\PG(1,0)$ has a mass of only about $2 \cdot 10^{-11}$. With equal spacing, only
+few nodes fall where the mass is, around $\gamma \approx 0.1$ to $0.5$.
+
+\paragraph{Log-trapezoid.}
+Substituting $\gamma = e^s$ turns the expectation into
+\[
+  \E_{\gamma \sim \PG(1,0)}[f(\gamma)] = \int_{-\infty}^{\infty} f(e^s)\, p(e^s)\, e^s \,\mathrm{d}s.
+\]
+Applying the trapezoid rule with $n$ equally spaced nodes $s_j$ and spacing $h$
+gives nodes $\gamma_j = e^{s_j}$ and weights $w_j \propto p(\gamma_j)\,\gamma_j\,h$.
+Since $p$ decays like $e^{-1/(8\gamma)}$ towards $0$ and like $e^{-\pi^2\gamma/2}$
+towards infinity, the range $\gamma \in [10^{-3}, 10]$ covers all of the mass.
+Equal spacing in $\log\gamma$ places many nodes at small $\gamma$, exactly where
+$e^{-\gamma z^2/2}$ lives for large $|z|$, and for smooth integrands that vanish at
+both ends the trapezoid rule converges exponentially in $n$.
+
+For the sigmoid alone, this makes the log-trapezoid rule more accurate than
+Gauss--PG with the same number of nodes. Inside PCPG, however, every node comes
+with the factor $e^{1/(8\gamma_j)}$ of $f$, which multiplies the error of the
+inner expectation. At the smallest node $\gamma = 10^{-3}$ this factor is about
+$10^{54}$, which overflows in floating point and makes the estimate useless. The
+smallest Gauss--PG node for $n = 19$ is $\gamma \approx 0.046$, where the factor
+is below $16$.
+
+\paragraph{Gauss--Legendre.}
+The standard Gauss--Legendre nodes $x_j \in [-1, 1]$ with weights $v_j$ are mapped
+to $\gamma_j = T (x_j + 1)/2$ on the same interval $[0, T]$, and the density goes
+into the weights, $w_j \propto v_j\, \frac{T}{2}\, p(\gamma_j)$. The rule is exact
+for polynomials times the density, which is not what we integrate, so it does not
+reach the convergence rate of a Gaussian rule for $\E[f(\gamma)]$.
+
+\paragraph{Log-Gauss--Legendre.}
+The same in $s = \log \gamma$, on the same range as the log-trapezoid rule: the
+Legendre nodes are mapped to $[\log 10^{-3}, \log 10]$, and the weights get the
+factor $p(e^s)\, e^s$ as there.
+
+\paragraph{Log-Gauss--PG.}
+The Gaussian quadrature rule in $s = \log \gamma$, with the distribution of $s$ as
+the weight function, so it is exact for polynomials in $s$ up to degree $2n - 1$.
+The moments of $s$ have no closed form, so the Jacobi matrix is not built from
+moments but by the Lanczos (Stieltjes) procedure on a fine discretisation of the
+distribution of $s$, with 4000 trapezoid points on $[\log 10^{-4}, \log 20]$.
+Lanczos builds the orthonormal polynomials point by point, with
+reorthogonalisation so that it stays stable, and their recurrence coefficients
+form the Jacobi matrix. The nodes and weights then follow from its
+eigendecomposition as in the Golub--Welsch algorithm.
+
+\subsection{Fitting the Nodes to the Sigmoid}
+\label{subsubsec:sigmoid-fit}
+
+With the sign flip (Section~\ref{subsec:sign-flip}), the rule is only evaluated
+for $z$ around and below $0$, and the error that matters is
+$\tfrac{1}{2}e^{z/2}\varepsilon(z^2/2)$ on that side. None of the rules above
+optimise this quantity, since they all discretise the $\PG(1,0)$ distribution.
+
+Since the rule enters the estimator linearly, the estimator computes exactly
+$\E[\hat\sigma(z)]$, and its error is the error of $\hat\sigma$ averaged over the
+distribution of $z$. Nothing in the rest of the method requires the nodes to
+represent $\PG(1,0)$: HS and the characteristic function only need $\gamma_j > 0$,
+and the weights only need to be nonnegative. We can therefore choose the nodes and
+weights to approximate the sigmoid itself. On a grid of 400 log-spaced candidate
+nodes $\gamma_j \in [0.02, 8]$ and 1500 fitting points $z_r \in [-30, 5]$, we
+minimise a norm of the error curve
+\[
+  e_r = \tfrac{1}{2}\, e^{z_r/2} \sum_{j} w_j\, e^{-\gamma_j z_r^2/2} - \sigma(z_r)
+\]
+over nonnegative weights that sum to one. We use three norms:
+\begin{itemize}
+  \item \textbf{L2}, the sum of squared errors, solved by nonnegative least squares with the sum-to-one constraint as an extra row,
+  \item \textbf{L1}, the sum of absolute errors, i.e.\ the area under the error curve,
+  \item \textbf{max}, the largest absolute error, which makes the error curve equally high everywhere.
+\end{itemize}
+L1 and max are linear programs. All three keep only a few of the candidates, so the
+number of nodes is not chosen directly. The sum-to-one constraint makes the
+estimate exactly $\frac{1}{2}$ at $z = 0$. The margin up to $z = 5$ covers the part
+of the distribution of $z$ that remains on the positive side after the flip, and
+the grid starts at $\gamma = 0.02$, so that $e^{1/(8\gamma)}$ in the inner integral
+stays below about $500$.
+
+This changes the view of the outer integral: the method approximates the
+sigmoid by functions of the form $\tfrac{1}{2}e^{z/2}e^{-\gamma z^2/2}$, whose
+expectations are tractable, and the PG identity is one particular, exact but
+infinite, choice of how to combine them. A finite rule only has to combine them
+well, not to represent the PG distribution. The only variants this does not apply
+to are the ones that sample $\gamma$ from $\PG(1,0)$, since a fitted rule cannot
+be sampled from.
+
+\section{Variants of PCPG}
+\label{app:variants}
+
+Each of the two expectations of PCPG can be computed by quadrature or by Monte
+Carlo, which gives the four combinations in Table~\ref{tab:pcpg-variants}. The
+variants with Monte Carlo use Algorithm~\ref{alg:pcpg} with the sampled nodes
+and the equal weights $\frac{1}{M}$ and $\frac{1}{N}$ in place of the quadrature
+nodes and weights, and without the factor $\frac{1}{\sqrt{\pi}}$ of
+Gauss--Hermite.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lll}
+\hline
+\textbf{Variant} & \textbf{Outer} $(\gamma_j, w_j)$ & \textbf{Inner} $(u_{ij}, \omega_{ij})$ \\
+\hline
+PCPG-MC   & $\gamma_j \sim \PG(1,0)$, $w_j = \frac{1}{M}$ & $u_{ij} \sim \mathcal{N}(0,\gamma_j)$, $\omega_{ij} = \frac{1}{N}$ \\[4pt]
+PCPG-GH   & $\gamma_j \sim \PG(1,0)$, $w_j = \frac{1}{M}$ & Gauss--Hermite: $u_{ij} = \sqrt{2\gamma_j}\,t_i$, $\omega_{ij} = \frac{\omega_i}{\sqrt{\pi}}$ \\[4pt]
+PCPG-GPG  & Gauss--PG rule & $u_{ij} \sim \mathcal{N}(0,\gamma_j)$, $\omega_{ij} = \frac{1}{N}$ \\[4pt]
+PCPG      & Gauss--PG rule & Gauss--Hermite: $u_{ij} = \sqrt{2\gamma_j}\,t_i$, $\omega_{ij} = \frac{\omega_i}{\sqrt{\pi}}$ \\
+\hline
+\end{tabular}
+\caption{The four combinations of Monte Carlo and quadrature for the two expectations of PCPG. Hermite nodes $(t_i, \omega_i)$ as in Section~\ref{subsec:gauss-hermite}, Gauss--PG nodes $(\gamma_j, w_j)$ as in Section~\ref{subsec:pg-quadrature}.}
+\label{tab:pcpg-variants}
+\end{table}
+
+PCPG-GPG samples the inner expectation, whose variance is very high, so it
+performs much worse than PCPG in practice.
+
+\section{Why Large Positive $z$ Is Hard}
+\label{app:large-z}
+
+In \eqref{eq:sigma-laplace}, any error $\varepsilon$ a rule makes in approximating
+$\mathcal{L}(z^2/2)$ enters the estimate of $\sigma(z)$ multiplied by
+$\tfrac{1}{2}e^{z/2}$. The nodes only see $z^2$, so this error is the same for $z$
+and $-z$, but its effect is not:
+\[
+  \bigl|\hat\sigma(z) - \sigma(z)\bigr| = \tfrac{1}{2}\, e^{z/2}\, \varepsilon(z^2/2).
+\]
+For $z < 0$ the factor shrinks the error, for $z > 0$ it amplifies it
+exponentially. Staying at $\sigma(z) \approx 1$ for large positive $z$ requires the
+sum of exponentials to reproduce the tail $\mathcal{L}(z^2/2) \approx 2e^{-z/2}$
+almost exactly, which only rules with nodes very close to $\gamma = 0$ can do.
+Rules with few or no nodes there (trapezoid, Gauss--Legendre, Gauss--PG) have a
+tail that is too small, so $\hat\sigma(z)$ falls back to $0$ and the error approaches
+$1$. A rule that puts more weight at tiny $\gamma$ than $\PG(1,0)$ really has there
+does the opposite: its tail is too heavy, and $\hat\sigma(z)$ blows up like $e^{z/2}$.
+Only the rules spaced in $\log \gamma$ stay accurate without further help, and only
+with enough nodes.

@@ -1,81 +1,65 @@
-# toy datasets and helpers to make copies with missing values
+# the data of the experiments and demos, and copies of it with missing values
 #
 # the data itself is always complete, missingness is added afterwards by setting
 # entries to nan. everything else in the code uses the same convention: a nan
 # means missing, and obs_mask = ~torch.isnan(x) gives the observed features.
 # features are dropped completely at random (MCAR), independent of their value.
+#   classification  sklearn's make_classification, split into train and test
+#   hide            a copy of points with some of their features set to nan
+#   load_data       both of them for train.py and estimate.py, as tensors
+#   loader          a shuffled loader over points, to fit a density model
 
 import numpy as np
 import torch
-from sklearn.datasets import make_classification, make_moons
+from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, TensorDataset
 
-class DataManager:
-    # generates the dataset and splits it into train and test
-    # 'sk_class' is sklearn's make_classification (gaussian clusters, any dimension,
-    # balanced classes), 'moons' the 2d moons, mostly for plotting.
-    # informative is the fraction of the features of 'sk_class' that carry the
-    # classes (at least 2), the others are noise and none are redundant. None
-    # keeps sklearn's default: 2 informative, 2 redundant (linear combinations of
-    # those), the rest noise
-    def __init__(self, name, samples=1000, features=20, test_size=0.2, random_state=42, informative=None):
-        if name == 'sk_class':
-            shape = {} if informative is None else dict(
-                n_informative=max(2, round(informative * features)), n_redundant=0)
-            x, y = make_classification(
-                n_samples=samples,
-                n_features=features,
-                weights=[0.5, 0.5],
-                random_state=random_state,
-                **shape,
-            )
-        elif name == 'moons':
-            x, y = make_moons(n_samples=samples, noise=0.1, random_state=random_state)
-        else:
-            raise ValueError(f"Unknown dataset name: {name}")
+# make_classification (gaussian clusters, balanced classes) with features
+# features, split into train and test (stratified, so both have the same class
+# balance). informative is the fraction of the features that carry the classes
+# (at least 2), the others are noise and none are redundant. None keeps
+# sklearn's default: 2 informative, 2 redundant (linear combinations of those),
+# the rest noise. standardize scales every feature to mean 0 and variance 1 on
+# the training points (the informative features of make_classification have a
+# variance that grows with their number). returns x_train, x_test, y_train,
+# y_test as numpy arrays
+def classification(features, informative=None, samples=10_000, test_size=0.2, seed=42, standardize=False):
+    shape = {} if informative is None else dict(n_informative=max(2, round(informative * features)), n_redundant=0)
+    x, y = make_classification(n_samples=samples, n_features=features, weights=[0.5, 0.5], random_state=seed, **shape)
+    x_train, x_test, y_train, y_test = train_test_split(x.astype(np.float32), y.astype(np.int64), test_size=test_size,
+                                                        random_state=seed, stratify=y)
+    if standardize:
+        mean, std = x_train.mean(axis=0), x_train.std(axis=0)
+        x_train, x_test = (x_train - mean) / std, (x_test - mean) / std
+    return x_train, x_test, y_train, y_test
 
-        # float32 for torch, labels as int64
-        x = x.astype(np.float32)
-        y = y.astype(np.int64)
-        # stratified so both splits have the same class balance
-        self.x_train, self.x_test, self.y_train, self.y_test = train_test_split(
-            x,
-            y,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=y,
-        )
-    
 
-    # loaders on the complete data, used to fit the gmm in demo.py
-    def get_dataloaders(self, batch_size=256):
-        train_dataset = TensorDataset(torch.from_numpy(self.x_train), torch.from_numpy(self.y_train))
-        test_dataset = TensorDataset(torch.from_numpy(self.x_test), torch.from_numpy(self.y_test))
+# a copy of the point x (D,) or the points x (B, D) (numpy) with int(missing_rate
+# * D) of the features of every point set to nan, chosen at random by rng for
+# every point
+def hide(x, missing_rate, rng):
+    x = x.copy()
+    n_hidden = int(missing_rate * x.shape[-1])
+    for row in x.reshape(-1, x.shape[-1]):
+        row[rng.choice(len(row), n_hidden, replace=False)] = np.nan
+    return x
 
-        train_loader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size)
-        test_loader = DataLoader(test_dataset, shuffle=False, batch_size=batch_size)
 
-        return train_loader, test_loader
-    
-    # raw numpy arrays, e.g. for sklearn's LogisticRegression
-    def get_data(self):
-        return self.x_train, self.x_test, self.y_train, self.y_test
-    
-    # one complete test point. used to see what the prediction would be if nothing
-    # was missing (not the target of the estimators, that is the expectation)
-    def get_test(self, idx=0, device=None):
-        x = torch.tensor(self.x_test[idx].copy())
-        return x.to(device) if device is not None else x
+# the classification data with n_features features, informative of them
+# informative and the others noise, 8000 training and 2000 test points,
+# standardized or not. the points are the same for every seed, which features
+# are hidden is not. returns the training points (complete and incomplete),
+# their labels, the test points (complete and incomplete) and their labels, as
+# tensors
+def load_data(n_features, missing_rate, informative, seed, device, standardize=False):
+    x_train, x_test, y_train, y_test = classification(n_features, informative, standardize=standardize)
+    rng = np.random.default_rng(seed)
+    x_missing = hide(x_train, missing_rate, rng)
+    x_test_missing = hide(x_test, missing_rate, rng)
+    arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test)
+    return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]
 
-    # same test point with exactly int(n_features * missing_rate) features set to nan.
-    # this is the x_partial that all estimators take as input
-    def get_test_missing(self, missing_rate=0.1, idx=0, device=None):
-        x = self.x_test[idx].copy()
-        n_missing = int(len(x) * missing_rate)
-        # which features are dropped is random, using the global numpy rng,
-        # so it depends on the seed set by the calling script
-        missing_idx = np.random.choice(len(x), n_missing, replace=False)
-        x[missing_idx] = np.nan
-        x = torch.tensor(x)
-        return x.to(device) if device is not None else x
+
+# a shuffled loader over the points x (tensor), what the density models fit on
+def loader(x, batch_size=64):
+    return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x), batch_size=batch_size, shuffle=True)

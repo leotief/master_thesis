@@ -53,8 +53,8 @@ METHODS = {
     "log_trapezoid":      ("log-trapezoid",      "#0072B2", "-"),
     "gauss_legendre":     ("Gauss-Legendre",     "#E69F00", "-"),
     "log_gauss_legendre": ("log-Gauss-Legendre", "#E69F00", "--"),
-    "golub_welsch":       ("Golub-Welsch",       "#D55E00", "-"),
-    "log_golub_welsch":   ("log-Golub-Welsch",   "#D55E00", "--"),
+    "golub_welsch":       ("Gauss-PG",           "#D55E00", "-"),
+    "log_golub_welsch":   ("log-Gauss-PG",       "#D55E00", "--"),
     "sigmoid_fit_l2":     ("sigmoid fit (L2)",   "#CC79A7", "--"),
     "sigmoid_fit_l1":     ("sigmoid fit (L1)",   "#56B4E9", "--"),
     "sigmoid_fit_max":    ("sigmoid fit (max)",  "#009E73", "--"),
@@ -91,13 +91,12 @@ ROWS = [
 Z_MAX = 30
 # mc_check: sample sizes, one set of curves each
 N_SAMPLES = [10, 100, 1000, 10000]
-# comparison plots: number of points every quadrature gets (golub-welsch max
-# ~19, the sigmoid fits ignore it and pick their own). mc gets N_MC samples
+# comparison plots: number of points every quadrature gets (the sigmoid fits
+# ignore it and pick their own). mc gets N_MC samples
 N_NODES = 15
 N_MC    = 1000
 # convergence plot: point counts on the x axis. mc uses the same numbers as
-# samples (one run each), golub-welsch skips the ones above 19, the sigmoid fits
-# are single points. the error is the mean absolute error over |z| <= ERR_MAX
+# samples (one run each), the sigmoid fits are single points. the error is the mean absolute error over |z| <= ERR_MAX
 N_RANGE = [3, 5, 10, 15, 19, 30, 50]
 ERR_MAX = 10
 
@@ -111,12 +110,11 @@ GROUPS = {
 }
 
 # key_best_comparison: number of points (samples for mc) per method, the most
-# each one gets in this demo. golub-welsch is capped at 19, the sigmoid fit
-# picks its own (None)
+# each one gets in this demo. the sigmoid fit picks its own (None)
 BEST = {
     "mc":             100_000,
     "log_trapezoid":  50,
-    "golub_welsch":   19,
+    "golub_welsch":   50,
     "sigmoid_fit_l2": None,
 }
 
@@ -255,9 +253,8 @@ def _convergence_lines(methods, z, rng, flip):
             nodes, weights = get_nodes(method, None, rng)
             lines.append(([len(nodes)], [mean_abs_error(z, nodes, weights, flip)], label, color, ls))
             continue
-        ns   = [n for n in N_RANGE if method != "golub_welsch" or n <= 19]
-        errs = [mean_abs_error(z, *get_nodes(method, n, rng), flip) for n in ns]
-        lines.append((ns, errs, label, color, ls))
+        errs = [mean_abs_error(z, *get_nodes(method, n, rng), flip) for n in N_RANGE]
+        lines.append((N_RANGE, errs, label, color, ls))
     return lines
 
 # convergence of the all group (left) and the key group (right) in one figure

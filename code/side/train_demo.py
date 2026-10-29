@@ -68,13 +68,13 @@ label   = int(y_np[point])
 
 def exact_objective(w):
     with torch.no_grad():
-        return objective(exact.differentiable, w, x_missing, y, N_POINTS).item()
+        return objective(exact.estimate_diff, w, x_missing, y, N_POINTS).item()
 
 
 # the loss of the figure, the average of -log p(y | x_obs), without the penalty
 def loss(w):
     with torch.no_grad():
-        p = exact.differentiable(torch.as_tensor(w, dtype=torch.float32), x_missing).to(y.dtype).clamp(EPS, 1 - EPS)
+        p = exact.estimate_diff(torch.as_tensor(w, dtype=torch.float32), x_missing).to(y.dtype).clamp(EPS, 1 - EPS)
         return F.binary_cross_entropy(p, y).item()
 
 
@@ -93,16 +93,16 @@ def train(predict, seed):
     return torch.stack(path).numpy()
 
 
-path_exact, path_pcpg = train(exact.differentiable, SEED), train(pcpg.differentiable, SEED)
-paths_mc = [train(mc_few.differentiable, SEED + run) for run in range(3)]
-path_mc_same = train(mc_same.differentiable, SEED)
+path_exact, path_pcpg = train(exact.estimate_diff, SEED), train(pcpg.estimate_diff, SEED)
+paths_mc = [train(mc_few.estimate_diff, SEED + run) for run in range(3)]
+path_mc_same = train(mc_same.estimate_diff, SEED)
 w_now = path_exact[STEP]
 
 # ── step 1: the predictions at the current w ──────────────────────────────────
 
 with torch.no_grad():
-    prediction_now_pcpg = float(pcpg(torch.tensor(w_now), x_point))
-    predictions_now = np.asarray(exact(torch.tensor(w_now), x_missing))
+    prediction_now_pcpg = pcpg.estimate(torch.tensor(w_now), x_point)
+    predictions_now = exact.estimate(torch.tensor(w_now), x_missing)
 
 # mc's random values of x2 on the line of the point
 torch.manual_seed(SEED)
