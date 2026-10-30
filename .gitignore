@@ -1,6 +1,5 @@
 # Claude Code
 .claude/
-CLAUDE.md
 
 # Editors / IDEs
 .vscode/
@@ -23,3 +22,6 @@ code/figures/
 
 # fitted models of estimate.py
 code/cache/
+
+# Local notes and drafts, not in the repo
+/scratchpad/

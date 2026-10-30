@@ -65,8 +65,8 @@ Gauss--PG with the same number of nodes. Inside PCPG, however, every node comes
 with the factor $e^{1/(8\gamma_j)}$ of $f$, which multiplies the error of the
 inner expectation. At the smallest node $\gamma = 10^{-3}$ this factor is about
 $10^{54}$, which overflows in floating point and makes the estimate useless. The
-smallest Gauss--PG node for $n = 19$ is $\gamma \approx 0.046$, where the factor
-is below $16$.
+smallest Gauss--PG node for $n = 20$ is $\gamma \approx 0.044$, where the factor
+is about $17$.
 
 \paragraph{Gauss--Legendre.}
 The standard Gauss--Legendre nodes $x_j \in [-1, 1]$ with weights $v_j$ are mapped
@@ -181,3 +181,127 @@ $1$. A rule that puts more weight at tiny $\gamma$ than $\PG(1,0)$ really has th
 does the opposite: its tail is too heavy, and $\hat\sigma(z)$ blows up like $e^{z/2}$.
 Only the rules spaced in $\log \gamma$ stay accurate without further help, and only
 with enough nodes.
+
+\section{Further Variants of the Estimation Experiment}
+\label{app:estimate-variants}
+
+The four variants of the comparison in Section~\ref{sec:results-estimate} between
+the raw data with $C = 1$ and the standardised data with $C = 10^{-3}$. The setup and
+the layout of the figures are the same.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_0.5_20_60_norm_w.pdf}
+  \caption[Raw data, rescaled weights]{Raw data, weights of the classifier
+    ($C = 1$) rescaled to $w / \|w\|$.}
+  \label{fig:comparison-fixed-norm}
+\end{figure}
+
+\paragraph{Rescaled weights.}
+In Figure~\ref{fig:comparison-fixed-norm} the weights are rescaled to unit norm.
+This does not help: at $d = 5000$ PCPG and PCPG exact inner still have an RMSE of
+about $10^{-1}$. The reason is the data. The informative features of
+\texttt{make\_classification} have a variance that grows with their number, up to
+about $900$ at $d = 5000$, so $z = w^T x$ is spread widely even with $\|w\| = 1$.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_0.5_20_60_norm_x.pdf}
+  \caption[Standardised data, default classifier]{Standardised features, logistic
+    regression with $C = 1$.}
+  \label{fig:comparison-standardised}
+\end{figure}
+
+\paragraph{Standardised data.}
+With standardised features and the trained weights
+(Figure~\ref{fig:comparison-standardised}), the error at $d = 5000$ falls to
+$2 \cdot 10^{-2}$ to $5 \cdot 10^{-2}$, but it is still about as large as that of MC.
+Now the classifier is the cause: with $C = 1$ it overfits many features, and the
+standard deviation of $z$ grows to about $12$ at $d = 5000$
+(Table~\ref{tab:classifier-norm}).
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_0.5_20_60_norm_both.pdf}
+  \caption[Standardised data, rescaled weights]{Standardised features, weights of
+    the classifier ($C = 1$) rescaled to $w / \|w\|$.}
+  \label{fig:comparison-both}
+\end{figure}
+
+\paragraph{Standardised data and rescaled weights.}
+With both (Figure~\ref{fig:comparison-both}), $z$ has about the same scale for
+every $d$, and the error of PCPG no longer depends on $d$: it is about $10^{-7}$
+for every number of features and missing rate, and about $3 \cdot 10^{-8}$ for PCPG
+exact inner. MC stays between $2 \cdot 10^{-3}$ and $6 \cdot 10^{-3}$. Rescaling $w$
+keeps every decision of the classifier, but it is no longer the trained classifier.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/comparison_0.5_20_60_norm_C1e2.pdf}
+  \caption[Standardised data, $C = 10^{-2}$]{Standardised features, logistic
+    regression with $C = 10^{-2}$.}
+  \label{fig:comparison-c1e2}
+\end{figure}
+
+
+\paragraph{Standardised data, $C = 10^{-2}$.}
+With $C = 10^{-2}$ (Figure~\ref{fig:comparison-c1e2}), the standard deviation of $z$
+stays below $4$ (Table~\ref{tab:classifier-norm}), and the error of PCPG stays
+below $2 \cdot 10^{-6}$ for most settings and reaches about $10^{-5}$ at
+$d = 5000$.
+
+\section{Further Results of the Training Experiment}
+\label{app:training}
+
+The accuracy on the incomplete test points of the training experiment in
+Section~\ref{sec:training}, with three prediction rules: every model with the
+exact expected prediction, every model with mean imputation (the missing features
+filled by their training means), and every model with its own rule as in
+Figure~\ref{fig:training-own}. The classifier trained on complete data is the
+yellow band. The differences are discussed in Section~\ref{sec:disc-training}.
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_0.5_20_60_accuracy_missing.pdf}
+  \caption[Accuracy on incomplete points, raw data]{Accuracy on the incomplete
+    test points, raw data with $C = 1$, against the number of features $d$. From
+    top to bottom: every model predicts with the exact expected prediction, with
+    mean imputation, and with its own rule. The reference is the classifier
+    trained on complete data (yellow band).}
+  \label{fig:training-missing-raw}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{figures/train/gmm/comparison_0.5_20_60_norm_accuracy_missing.pdf}
+  \caption[Accuracy on incomplete points, standardised data]{The same as
+    Figure~\ref{fig:training-missing-raw}, for the standardised data with
+    $C = 10^{-3}$.}
+  \label{fig:training-missing-norm}
+\end{figure}
+
+\paragraph{Accuracy on incomplete test points, raw data.}
+With the exact expected prediction (Figure~\ref{fig:training-missing-raw}, top),
+all classifiers reach almost the same accuracy at 30\% and 50\% missing. At 80\%
+missing, the classifiers trained on the marginal likelihood are more accurate
+than the one trained on complete data, by 2.0 percentage points at 5 features
+($57.7\%$ against $55.7\%$), 1.9 at 50 features and 1.4 at 100 features. With
+mean imputation at test time (middle), the classifiers trained on the marginal
+likelihood lose accuracy up to 20 features, by up to 3.4 percentage points
+(20 features, 80\% missing). Only at 5 features with 80\% missing do all
+classifiers gain, by 1.3 to 2.4 percentage points. From 50 features on, the two
+rules agree to within $0.3$ percentage points for every classifier. With every
+model's own rule (bottom), the classifiers trained on the marginal likelihood
+are ahead of both baselines at 20 features, by 2.0 to 3.1 percentage points
+against complete data and 1.2 to 2.2 against mean imputation. At 10 features
+and from 50 features on, they are level with mean imputation and up to
+1.8 percentage points ahead of complete data.
+
+\paragraph{Accuracy on incomplete test points, standardised data.}
+On the standardised data (Figure~\ref{fig:training-missing-norm}), all classifiers
+are close with every rule. The largest difference to the complete-data
+classifier is 1.6 percentage points with the exact expected prediction, and
+2.3 percentage points with the own rule, at 20 features and 80\% missing, where
+the classifiers trained on the marginal likelihood are ahead. There is no
+consistent advantage for any model.
+

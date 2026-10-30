@@ -2,6 +2,7 @@
 # of their story: fitting the density model, the logistic regression, finding the optimum of an objective, the
 # accuracy, the errors of the estimators, and the comparisons of all settings
 
+import json
 import os
 import time
 
@@ -10,7 +11,8 @@ import torch
 from sklearn.linear_model import LogisticRegression
 
 from side.utils.data import loader
-from side.utils.plots import plot_estimate_comparison, plot_train_features, plot_train_sklearn, save_figure
+from side.utils.plots import (plot_estimate_comparison, plot_train_accuracy_missing, plot_train_difference,
+                              plot_train_accuracy, save_figure)
 from side.utils.gmm import GMM
 from side.utils.spflow_pc import SPFlowPC
 
@@ -76,47 +78,51 @@ def accuracy(p, y):
     return ((p > 0.5).float() == y).float().mean().item()
 
 
-# the comparison of train.py: scores[(n_features, missing_rate)][model] holds
-# the scores of every model in every setting. draws them against the number
-# of features, one column per missing rate, in figures/<folder>/ and the
-# thesis: the objective gap with exact as the target, the test accuracies with
-# complete data as the target (exact left out), complete data and mean
-# imputation fit by sklearn. and in comparison_sklearn these two by sklearn
-# against the same by adam, all three scores
-def compare(scores, features, missing_rates, folder):
+# the scores of train.py as series for the figures: score -> missing rate ->
+# model -> one value per number of features
+def _series(scores, features, missing_rates):
     results = {}
-    for score in ("gap", "accuracy_missing", "accuracy_complete"):
+    for score in scores[(features[0], missing_rates[0])]["Exact"]:
         results[score] = {}
         for rate in missing_rates:
             results[score][rate] = {}
             for name in scores[(features[0], rate)]:
                 results[score][rate][name] = [scores[(n, rate)][name][score] for n in features]
+    return results
 
-    # the main figures: the baselines by sklearn, under their plain names
-    main = {"Complete data": "Complete data, sklearn", "Mean imputation": "Mean imputation, sklearn",
-            "MC": "MC", "PCPG": "PCPG", "Exact": "Exact"}
-    for score, ylabel, log, target in (("gap", "objective gap", True, "Exact"),
-                                       ("accuracy_missing", "test accuracy, missing features", False, "Complete data"),
-                                       ("accuracy_complete", "test accuracy, complete points", False, "Complete data")):
-        panels = {}
-        for rate in missing_rates:
-            panels[rate] = {}
-            for label, name in main.items():
-                if not (name == "Exact" and target == "Complete data"):
-                    panels[rate][label] = results[score][rate][name]
-        save_figure(plot_train_features, folder, f"comparison_{score}",
-                    features, missing_rates, panels, ylabel, log, target)
 
-    # sklearn against adam for the two logistic regressions
-    names = ["Complete data, sklearn", "Complete data", "Mean imputation, sklearn", "Mean imputation"]
-    sklearn = {}
-    for score in results:
-        sklearn[score] = {}
-        for rate in missing_rates:
-            sklearn[score][rate] = {}
-            for name in names:
-                sklearn[score][rate][name] = results[score][rate][name]
-    save_figure(plot_train_sklearn, folder, "comparison_sklearn", features, missing_rates, sklearn)
+# the comparison of train.py: scores[(n_features, missing_rate)][model][score]
+# holds the scores of every model in every setting of one configuration (suffix
+# ends in _norm for the standardized data). saved as cache/<folder>/scores<suffix>.json,
+# and drawn against the number of features, a column per missing rate, in
+# figures/<folder>/ and the thesis: the accuracy on the incomplete test points
+# of this configuration (comparison<suffix>_accuracy_missing), and once both
+# configurations are saved, for both: the difference to exact, the accuracy on
+# the complete test points, and on the incomplete ones with every model's own
+# rule against the complete-data classifier with the exact expected prediction
+# (comparison<suffix without _norm>_difference, _accuracy_complete, _accuracy_own)
+def compare(scores, features, missing_rates, folder, suffix):
+    os.makedirs(f"cache/{folder}", exist_ok=True)
+    with open(f"cache/{folder}/scores{suffix}.json", "w") as file:
+        json.dump({f"{n}_{rate}": scores[(n, rate)] for n, rate in scores}, file)
+    save_figure(plot_train_accuracy_missing, folder, f"comparison{suffix}_accuracy_missing", features,
+                missing_rates, _series(scores, features, missing_rates))
+
+    base = suffix.removesuffix("_norm")
+    paths = {"raw": f"cache/{folder}/scores{base}.json", "standardized": f"cache/{folder}/scores{base}_norm.json"}
+    if not all(os.path.exists(path) for path in paths.values()):
+        return
+    both = {}
+    for config, path in paths.items():
+        with open(path) as file:
+            saved = json.load(file)
+        both[config] = _series({(n, rate): saved[f"{n}_{rate}"] for n in features for rate in missing_rates},
+                               features, missing_rates)
+    save_figure(plot_train_difference, folder, f"comparison{base}_difference", features, missing_rates, both)
+    save_figure(plot_train_accuracy, folder, f"comparison{base}_accuracy_complete", features, missing_rates,
+                both, "accuracy_complete", None)
+    save_figure(plot_train_accuracy, folder, f"comparison{base}_accuracy_own", features, missing_rates,
+                both, "accuracy_own", "accuracy_exact")
 
 
 # the errors of estimate.py. every estimator is called as estimator.estimate(w,

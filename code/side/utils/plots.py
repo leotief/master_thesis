@@ -1244,51 +1244,82 @@ def plot_pcpg_variants(rates, results, out_path):
 
 # ── training on incomplete data (train.py) ───────────────────────────────────
 
-# the methods of estimate.py keep their colours, the oracle on complete data
-# is a dotted slate line. the target of a figure (exact for the objective
-# gap, complete data for the accuracies) is a pale wide butter band, as every
-# target, the methods that reach it sit inside it
-_METHOD_STYLE["Complete data"] = dict(color=_CAT["text"], ls=(0, (1, 1.5)), marker=None)
+# the methods of estimate.py keep their colours. the oracle on complete data
+# is the target, a pale wide butter band as every target, the methods that
+# reach it sit inside it
 
-# complete data and mean imputation fit by sklearn (the comparison of sklearn
-# against adam) in their colours with open markers, the ones by adam with
-# filled markers and solid lines
-_METHOD_STYLE["Complete data, sklearn"] = dict(color=_CAT["text"], ls=(0, (1, 1.5)), marker="o", mfc="white")
-_METHOD_STYLE["Mean imputation, sklearn"] = dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker="o", mfc="white")
-_SOLID = {"Complete data": dict(color=_CAT["text"], marker="s"), "Mean imputation": dict(color=_CAT["overlay"], marker="s")}
-
-# a method's line, or the band if it is the target
-def _train_line(ax, x, y, name, target):
-    if name == target:
-        _band(ax, x, y, _SIGMA_BAND, label=name, lw=13 * _THESIS_SCALE)
-    else:
-        _method_line(ax, x, y, name)
-
-# the objective gap is positive, but can come out at 0 or slightly below
-# for the optimum itself (rounding), the log axis needs a floor
+# the difference can come out at 0, the log axis needs a floor
 def _positive(values):
-    return np.maximum(np.asarray(values, dtype=float), 1e-8)
+    return np.maximum(np.asarray(values, dtype=float), 1e-10)
 
-# all training methods against the number of features, one panel per missing
-# rate, as the comparison of estimate.py. results: missing rate -> method -> one
-# value per number of features, ylabel the score, log for a log y axis (the
-# objective gap), target the method drawn as the target band
-@styled
-def plot_train_features(features, rates, results, ylabel, log, target, out_path):
-    fig, axes = _three_panels(sharey=True)
-    for ax, rate in zip(axes, rates):
-        # the target first, so the legend starts with it
-        for name, values in sorted(results[rate].items(), key=lambda item: item[0] != target):
-            _train_line(ax, features, _positive(values) if log else values, name, target)
+# the two configurations of train.py: raw data solid with filled markers,
+# standardized data dashed with open markers
+_CONFIGS = (("raw", "raw", "-", None), ("standardized", "standardized", (0, (4, 2)), "white"))
+
+# columns per missing rate, titles on top, "features" below, the legend above,
+# then saved
+def _train_axes(fig, axes, rates, ncol, out_path):
+    for ax in axes.flat:
         ax.set_xscale("log")
-        if log:
-            ax.set_yscale("log")
-        ax.set_xlabel("features")
+    for ax, rate in zip(axes[0], rates):
         ax.set_title(f"{_percent(rate)} missing")
-    axes[0].set_ylabel(ylabel)
-    _top_legend(fig, axes[0], ncol=3)
+    for ax in axes[-1]:
+        ax.set_xlabel("features")
+    _top_legend(fig, axes[-1, 0], ncol=ncol)
     fig.savefig(out_path)
     plt.close(fig)
+
+# complete data as the target band, mean imputation, mc and pcpg as lines
+# (exact left out, it lies on pcpg). values: name -> one value per number of features
+def _accuracy_panel(ax, features, values):
+    _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
+    for name in ("Mean imputation", "MC", "PCPG"):
+        _method_line(ax, features, values[name], name)
+
+# the mean difference of the test predictions of mc and pcpg to those of exact
+# training, both configurations in one panel per missing rate. both:
+# configuration -> score -> missing rate -> name -> one value per number of features
+@styled
+def plot_train_difference(features, rates, both, out_path):
+    fig, axes = plt.subplots(1, 3, figsize=(THESIS_WIDTH, 2.4), layout="constrained", sharey=True, squeeze=False)
+    for ax, rate in zip(axes[0], rates):
+        for config, label, ls, mfc in _CONFIGS:
+            for name in ("MC", "PCPG"):
+                style = _METHOD_STYLE[name]
+                ax.plot(features, _positive(both[config]["difference"][rate][name]), color=style["color"], ls=ls,
+                        marker=style["marker"], ms=3, lw=1.1, mfc=mfc, label=f"{name}, {label}")
+        ax.set_yscale("log")
+    axes[0, 0].set_ylabel("difference to Exact")
+    _train_axes(fig, axes, rates, 4, out_path)
+
+# the accuracy on the incomplete test points of one configuration, a row per
+# prediction rule: the exact expected prediction, mean imputation, and every
+# model's own rule. results: score -> missing rate -> name -> one value per number of features
+@styled
+def plot_train_accuracy_missing(features, rates, results, out_path):
+    fig, axes = plt.subplots(3, 3, figsize=(THESIS_WIDTH, 5.4), layout="constrained", sharex=True, sharey=True)
+    for row, (score, ylabel) in zip(axes, (("accuracy_exact", "accuracy, exact"),
+                                           ("accuracy_mean", "accuracy, mean imp."),
+                                           ("accuracy_own", "accuracy, own rule"))):
+        for ax, rate in zip(row, rates):
+            _accuracy_panel(ax, features, results[score][rate])
+        row[0].set_ylabel(ylabel)
+    _train_axes(fig, axes, rates, 4, out_path)
+
+# an accuracy of mean imputation, mc and pcpg (score in both, as in
+# plot_train_difference) against the number of features, a row per
+# configuration (raw, standardized) and a column per missing rate. the target
+# band is the complete-data classifier with reference (its score, if None)
+@styled
+def plot_train_accuracy(features, rates, both, score, reference, out_path):
+    fig, axes = plt.subplots(2, 3, figsize=(THESIS_WIDTH, 3.9), layout="constrained", sharex=True, sharey="row")
+    for row, (config, label, _, _) in zip(axes, _CONFIGS):
+        for ax, rate in zip(row, rates):
+            values = dict(both[config][score][rate])
+            values["Complete data"] = both[config][reference or score][rate]["Complete data"]
+            _accuracy_panel(ax, features, values)
+        row[0].set_ylabel(f"accuracy, {label}")
+    _train_axes(fig, axes, rates, 4, out_path)
 
 
 # ── training step by step (train_demo.py) ────────────────────────────────────
@@ -1527,31 +1558,3 @@ def _plot_training_step_by_step(d, texts, out_path):
     plt.close(fig)
 
 
-# complete data and mean imputation, fit by sklearn and by adam, against the
-# number of features: a row per score (objective gap, test accuracy on the
-# incomplete and on the complete test points), a column per missing rate.
-# results: score -> missing rate -> name -> one value per number of features
-@styled
-def plot_train_sklearn(features, rates, results, out_path):
-    fig, axes = plt.subplots(3, 3, figsize=(THESIS_WIDTH, 5.4), layout="constrained", sharex=True, sharey="row")
-    for row, (score, ylabel) in zip(axes, (("gap", "objective gap"), ("accuracy_missing", "acc., missing"),
-                                           ("accuracy_complete", "acc., complete"))):
-        for ax, rate in zip(row, rates):
-            for name, values in results[score][rate].items():
-                if name in _SOLID:
-                    style = _SOLID[name]
-                    ax.plot(features, _positive(values) if score == "gap" else values, color=style["color"],
-                            marker=style["marker"], ms=3, lw=1.1, label=f"{name}, Adam")
-                else:
-                    _method_line(ax, features, _positive(values) if score == "gap" else values, name)
-            ax.set_xscale("log")
-            if score == "gap":
-                ax.set_yscale("log")
-        row[0].set_ylabel(ylabel)
-    for ax, rate in zip(axes[0], rates):
-        ax.set_title(f"{_percent(rate)} missing")
-    for ax in axes[-1]:
-        ax.set_xlabel("features")
-    _top_legend(fig, axes[0, 0], ncol=2)
-    fig.savefig(out_path)
-    plt.close(fig)

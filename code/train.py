@@ -5,22 +5,28 @@
 #   setup       the training and test points with some features hidden, and a
 #               density model p(x) fit on the incomplete training points (its
 #               likelihood leaves the missing features out exactly, so this
-#               needs no pcpg). then the models, every model is a set of
-#               training points and a prediction
-#   training    every model is trained the same way, adam on minibatches of the
-#               binary cross-entropy of its predictions plus the l2 penalty of
-#               sklearn's LogisticRegression (C = 1). no intercept, as in
-#               estimate.py
-#   evaluation  how close every model gets to the optimum of the exact
-#               training objective, and its accuracy on the test points
-# and at the end the comparison of all settings, as three figures.
+#               needs no pcpg)
+#   training    mc, pcpg and exact are trained the same way, adam on the same
+#               minibatches of the binary cross-entropy of their predictions
+#               plus the l2 penalty of sklearn's LogisticRegression (C). complete
+#               data and mean imputation are fit by sklearn. no intercept, as
+#               in estimate.py
+#   evaluation  two questions. does training with mc or pcpg give the classifier
+#               of exact training: the mean difference of their test predictions
+#               to those of exact. is training on the marginal likelihood better
+#               than the usual ways: accuracy on the incomplete test points, with
+#               three prediction rules for every model (the exact expected
+#               prediction, mean imputation, its own rule), and on the complete
+#               test points
+# and at the end the comparison of all settings, as figures. one run is one
+# configuration (NORM), the figures with both configurations are drawn once
+# both have run.
 #
-# the models differ only in the training points they see and in how they
-# predict:
-#   Complete data    sigmoid(w^T x) on the complete training points. an oracle,
-#                    this data is not available when features are missing
-#   Mean imputation  sigmoid(w^T x) on the training points with the gaps filled
-#                    by the means
+# the models:
+#   Complete data    logistic regression on the complete training points. an
+#                    oracle, this data is not available when features are missing
+#   Mean imputation  logistic regression on the training points with the gaps
+#                    filled by the means
 #   MC, PCPG, Exact  the expected prediction p(y=1 | x_obs) = E[sigmoid(w^T x) | x_obs],
 #                    the average over the missing features under p(x_mis | x_obs),
 #                    on the incomplete training points. its loss is the marginal
@@ -33,7 +39,7 @@
 #                             the model's characteristic function
 #                      Exact  through the mixture of z (model.z_mixture),
 #                             gauss-hermite per component. only for the gmm and
-#                             small pcs, the target of mc and pcpg
+#                             small pcs, the reference of mc and pcpg
 # the helpers are in experiment_utils.py
 
 import itertools
@@ -41,7 +47,7 @@ import itertools
 import torch
 import torch.nn.functional as F
 
-from experiment_utils import accuracy, compare, fit_density, logistic_regression, optimum
+from experiment_utils import accuracy, compare, fit_density, logistic_regression
 from pcpg import PCPG
 from side.utils.baselines import MCBaseline, MixtureGaussHermite
 from side.utils.data import load_data
@@ -59,28 +65,37 @@ MISSING_RATES = [0.3, 0.5, 0.8]
 INFORMATIVE   = 0.5
 SEED          = 0
 
+# NORM: standardized features and a strong l2 penalty (C = 1e-3), which keeps
+# z = w^T x on a moderate scale, the setup that worked best in estimate.py.
+# without it the raw data and sklearn's default C = 1
+NORM = True
+
 # pcpg's nodes, mc gets the same budget. gauss-hermite nodes per mixture
 # component of the exact expectation
-N_OUTER, N_INNER = 10, 32
+N_OUTER, N_INNER = 20, 60
 BUDGET           = N_OUTER * N_INNER
 EXACT_NODES      = 64
 
-# the l2 penalty and adam
-C      = 1.0
+# the l2 penalty
+C = 1e-3 if NORM else 1.0
+
+# the figures are comparison<SUFFIX>_<score>
+SUFFIX = "_" + str(INFORMATIVE) + "_" + str(N_OUTER) + "_" + str(N_INNER) + ("_norm" if NORM else "")
+
+# optimizer 
 EPOCHS = 100
 BATCH  = 1024
 LR     = 0.01
+
 # predictions are clamped to [EPS, 1 - EPS] in the loss, the quadrature error
 # of pcpg can put them slightly outside [0, 1]
 EPS    = 1e-6
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
 # the prediction of a logistic regression on complete points
 def sigmoid_prediction(w, x):
     return torch.sigmoid(x @ w)
-
 
 # the training objective: the mean binary cross-entropy of the predictions of
 # the points x with labels y, plus the l2 penalty, scaled to one of n_train
@@ -89,95 +104,92 @@ def objective(predict, w, x, y, n_train):
     p = predict(w, x).to(y.dtype).clamp(EPS, 1 - EPS)
     return F.binary_cross_entropy(p, y) + w.square().sum() / (2 * C * n_train)
 
-
-# the scores of every model in every setting, scores[setting][model]
+# the scores of every model in every setting, scores[setting][model][score]
 scores = {}
 
 for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
 
     # ── setup ─────────────────────────────────────────────────────────────────
 
-    # the training and test points: complete, and with missing_rate of the
-    # features of every point hidden (nan)
-    x_train, x_missing, y_train, x_test, x_test_missing, y_test = load_data(
-        n_features, missing_rate, INFORMATIVE, SEED, device)
+    # the training and test points: complete, and with missing_rate of the features of every point hidden (nan)
+    x_train, x_missing, y_train, x_test, x_test_missing, y_test = load_data(n_features, missing_rate, INFORMATIVE, SEED, device, standardize=NORM)
     n_train = len(x_train)
 
-    # the training points with the gaps filled by the means, for mean imputation
+    # the training and test points with the gaps filled by the training means, for mean imputation
     x_filled = torch.where(torch.isnan(x_missing), x_missing.nanmean(dim=0), x_missing)
+    x_test_filled = torch.where(torch.isnan(x_test_missing), x_missing.nanmean(dim=0), x_test_missing)
 
     # the density model p(x), fit on the incomplete training points
-    px = fit_density(MODEL, x_missing, f"cache/train/{MODEL}_{n_features}features_{missing_rate}missing.pt", device)
+    px = fit_density(MODEL, x_missing, f"cache/train/{MODEL}/{n_features}features_{missing_rate}missing_{INFORMATIVE}informative{'_norm' if NORM else ''}.pt", device)
 
     # the three estimators of the expected prediction E[sigmoid(w^T x) | x_obs].
-    # their estimate_diff(w, x) returns it for the points x as a tensor, with
-    # gradients through w
+    # their estimate_diff(w, x) returns it for the points x as a tensor, with gradients through w
     pcpg  = PCPG(px, n_outer=N_OUTER, n_inner=N_INNER)
     mc    = MCBaseline(px, n_samples=BUDGET)
     exact = MixtureGaussHermite(px, n_nodes=EXACT_NODES)
 
-    # the models: the training points every model sees, and its prediction
+    # the models trained on the marginal likelihood, every one with its estimator
     models = {
-        "Complete data":   (x_train,   sigmoid_prediction),
-        "Mean imputation": (x_filled,  sigmoid_prediction),
-        "MC":              (x_missing, mc.estimate_diff),
-        "PCPG":            (x_missing, pcpg.estimate_diff),
-        "Exact":           (x_missing, exact.estimate_diff),
+        "MC":    mc,
+        "PCPG":  pcpg,
+        "Exact": exact,
     }
 
     # ── training ──────────────────────────────────────────────────────────────
 
-    # every model from w = 0, by adam on minibatches of its training points
+    # every model from w = 0, by adam on the same minibatches of the incomplete
+    # training points (their own generator, mc's samples don't change them)
     weights = {}
-    for name, (x, predict) in models.items():
+    for name, estimator in models.items():
         torch.manual_seed(SEED)
+        order = torch.Generator(device=device).manual_seed(SEED)
         w = torch.zeros(n_features, device=device, requires_grad=True)
         optimizer = torch.optim.Adam([w], lr=LR)
         for epoch in range(EPOCHS):
-            for batch in torch.randperm(n_train, device=device).split(BATCH):
+            for batch in torch.randperm(n_train, device=device, generator=order).split(BATCH):
                 optimizer.zero_grad()
-                loss = objective(predict, w, x[batch], y_train[batch], n_train)
+                loss = objective(estimator.estimate_diff, w, x_missing[batch], y_train[batch], n_train)
                 loss.backward()
                 optimizer.step()
         weights[name] = w.detach()
 
-    # the two logistic regressions on complete points also the normal way, by
-    # sklearn (the same objective, solved exactly). the comparison uses these,
-    # and compares them with the ones trained by adam above
-    weights["Complete data, sklearn"] = logistic_regression(x_train, y_train, C)
-    weights["Mean imputation, sklearn"] = logistic_regression(x_filled, y_train, C)
+    # the two logistic regressions on complete points the usual way, by sklearn
+    weights["Complete data"] = logistic_regression(x_train, y_train, C)
+    weights["Mean imputation"] = logistic_regression(x_filled, y_train, C)
 
     # ── evaluation ────────────────────────────────────────────────────────────
 
-    # the exact training objective J(w), and its optimum w* by full batch l-bfgs
-    w_star = optimum(objective, exact.estimate_diff, x_missing, y_train, n_train, device)
-    best = objective(exact.estimate_diff, w_star, x_missing, y_train, n_train).item()
-
-    # for every model: the objective gap J(w) - J(w*), how well it minimises
-    # the exact objective; the test accuracy on the incomplete test points,
-    # every model with the exact expected prediction, so they only differ in w;
-    # and the test accuracy of sigmoid(w^T x) on the complete test points, how
-    # good w is as a classifier
+    # for every model: the mean difference of its exact expected predictions of
+    # the incomplete test points to those of exact, the accuracy on these points
+    # with three prediction rules (the exact expected prediction, mean
+    # imputation, its own rule: mean imputation for complete data and mean
+    # imputation, its estimator for mc, pcpg and exact), and the accuracy of
+    # sigmoid(w^T x) on the complete test points
     setting = (n_features, missing_rate)
     scores[setting] = {}
     with torch.no_grad():
+        p_exact = exact.estimate_diff(weights["Exact"], x_test_missing)
         for name, w in weights.items():
+            p = exact.estimate_diff(w, x_test_missing)
+            p_mean = sigmoid_prediction(w, x_test_filled)
+            if name in models:
+                p_own = torch.as_tensor(models[name].estimate(w, x_test_missing), device=device)
+            else:
+                p_own = p_mean
             scores[setting][name] = {
-                "gap": objective(exact.estimate_diff, w, x_missing, y_train, n_train).item() - best,
-                "accuracy_missing": accuracy(exact.estimate_diff(w, x_test_missing), y_test),
+                "difference": (p - p_exact).abs().mean().item(),
+                "accuracy_exact": accuracy(p, y_test),
+                "accuracy_mean": accuracy(p_mean, y_test),
+                "accuracy_own": accuracy(p_own, y_test),
                 "accuracy_complete": accuracy(sigmoid_prediction(w, x_test), y_test),
             }
 
     print(f"\n{n_features} features, {missing_rate:.0%} missing")
-    print(f"    {'':<26}{'objective gap':>15}{'acc. missing':>14}{'acc. complete':>15}")
+    print(f"    {'':<18}{'difference':>12}{'acc. exact':>12}{'acc. mean':>11}{'acc. own':>10}{'acc. complete':>15}")
     for name, score in scores[setting].items():
-        print(f"    {name:<26}{score['gap']:>15.1e}{score['accuracy_missing']:>14.4f}"
-              f"{score['accuracy_complete']:>15.4f}")
+        print(f"    {name:<18}{score['difference']:>12.1e}{score['accuracy_exact']:>12.4f}{score['accuracy_mean']:>11.4f}"
+              f"{score['accuracy_own']:>10.4f}{score['accuracy_complete']:>15.4f}")
 
 # ── comparison ────────────────────────────────────────────────────────────────
 
-# all settings against the number of features, one column per missing rate:
-# the objective gap with exact as the target, the test accuracies with complete
-# data (sklearn) as the target, and complete data and mean imputation by
-# sklearn against adam. in figures/train/<MODEL>/ and the thesis
-compare(scores, FEATURES, MISSING_RATES, f"train/{MODEL}")
+compare(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", SUFFIX)

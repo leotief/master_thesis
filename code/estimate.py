@@ -1,38 +1,5 @@
 # estimating the expected prediction E[sigmoid(w^T x) | x_obs] of a logistic
 # regression when features of the test points are missing
-#
-# the story, for every setting (number of features, missing rate):
-#   setup       the training and test points, with missing_rate of the
-#               features of every test point hidden. a density model p(x)
-#               (MODEL: "gmm", "pc" a small rat-spn-like circuit written from
-#               scratch, or "spflow" the rat-spn of the spflow library) and a
-#               logistic regression w (sklearn, C = 1, no intercept: the
-#               estimators only use w^T x), both fit on the complete training
-#               points
-#   estimation  every estimator averages the prediction over the missing
-#               features under p(x_mis | x_obs), for all test points at once:
-#                 PCPG             pcpg.py, the method of the thesis. polya-gamma
-#                                  and hubbard-stratonovich turn the sigmoid into
-#                                  a double integral over the model's
-#                                  characteristic function, here by quadrature
-#                                  (N_OUTER x N_INNER nodes)
-#                 MC               the missing features sampled from the model
-#                                  (as many samples as pcpg has nodes), the
-#                                  predictions averaged
-#                 Mean imputation  sigmoid(w^T x) with the gaps filled by the
-#                                  training means
-#   evaluation  the rmse over N_TEST test points against the exact value: z =
-#               w^T x given x_obs is a mixture of gaussians (model.z_mixture),
-#               and MixtureAdaptiveQuad integrates the sigmoid against every
-#               component, exact up to ~1e-12. for the pcs every induced tree is
-#               a component, so only small circuits
-# with NORM the features are standardized and w is rescaled to norm 1: the
-# logistic regression overfits many features and w grows, and the informative
-# features of make_classification get a variance that grows with their number.
-# both make z larger and pcpg's fixed nodes worse, NORM takes that away.
-# at the end the comparison of all settings, as one figure, and optionally
-# the four variants of pcpg (quadrature or mc over the outer and the inner
-# integral) against their budget.
 # the helpers are in experiment_utils.py
 
 import itertools
@@ -60,7 +27,8 @@ MISSING_RATES = [0.3, 0.5, 0.8]
 INFORMATIVE   = 0.5
 SEED          = 0
 
-# standardize the features and rescale w to norm 1 (True), or use both as they are (False)
+# standardize the features and add stron L2 penalty
+# if false both make z larger and pcpg's performance very much worse
 NORM = True
 
 # pcpg's nodes: the outer rule for gamma ~ PG(1, 0) and the inner gauss-hermite rule. mc gets the same budget
@@ -69,8 +37,9 @@ BUDGET           = N_OUTER * N_INNER
 
 SUFFIX = "_" + str(INFORMATIVE) + "_" + str(N_OUTER) + "_" + str(N_INNER) + ("_norm" if NORM else "")
 
-# the l2 penalty of the logistic regression
-C = 1.0
+# the l2 penalty of the logistic regression. decreasing it makes magnitude of w 
+# smaller which makes pcpg's better
+C = 0.001 if NORM else 1.0
 
 # the rmse is over the first N_TEST test points (the exact value is slow), the
 # time is the median of TIME_REPEATS calls on all test points
@@ -94,8 +63,8 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     # fit on complete points. the density only depends on the number of features (and NORM)
     px = fit_density(MODEL, x_train, f"cache/estimate/{MODEL}/{n_features}features_{INFORMATIVE}informative{'_norm' if NORM else ''}.pt", device)
     w = logistic_regression(x_train, y_train, C)
-    if NORM:
-        w = w / w.norm()
+    # if NORM:
+    #     w = w / w.norm()
 
     # the estimators: every one takes w and a batch of incomplete points (B, D) and returns E[sigmoid(w^T x) | x_obs] 
     estimators = {
@@ -129,13 +98,10 @@ if PCPG_VARIANTS:
 
     # pcpg with quadrature or mc over the outer and inner integral, rmse against budget
 
-    # the variants of pcpg at the end (off by default): at MAIN_FEATURES features,
-    # the budgets of the mc variants, the nodes of quadrature pcpg (n_inner =
-    # 4 n_outer), and n_inner / n_outer of pcpg with mc over both
     MAIN_FEATURES = 15
     BUDGETS       = [100, 300, 1000, 3000, 10_000, 30_000, 100_000]
     QUAD_NODES    = [(n, 4 * n) for n in (2, 3, 4, 6, 8, 11, 16, 23, 32)]
-    PCPG_RATIO    = 5
+    PCPG_RATIO    = 5  # n_inner / n_outer of pcpg with mc over both
 
     # the node and sample counts of pcpg with mc over both at a budget, with
     # n_inner / n_outer = PCPG_RATIO
@@ -155,10 +121,10 @@ if PCPG_VARIANTS:
         truths = MixtureAdaptiveQuad(px).estimate(w, points)
 
         variants = {
-            "PCPG":          (PCPG(px, pg_method=OUTER_RULE), {o * i: {"n_outer": o, "n_inner": i} for o, i in QUAD_NODES}),
+            "PCPG":          (PCPG(px), {o * i: {"n_outer": o, "n_inner": i} for o, i in QUAD_NODES}),
             "PCPG outer MC": (PCPG(px, outer="mc"),
                               {b: {"n_outer": max(1, b // N_INNER), "n_inner": N_INNER} for b in BUDGETS}),
-            "PCPG inner MC": (PCPG(px, inner="mc", pg_method=OUTER_RULE),
+            "PCPG inner MC": (PCPG(px, inner="mc"),
                               {b: {"n_outer": N_OUTER, "n_inner": max(1, b // N_OUTER)} for b in BUDGETS}),
             "PCPG full MC":  (PCPG(px, outer="mc", inner="mc"), {b: full_mc_counts(b) for b in BUDGETS}),
         }

@@ -568,23 +568,23 @@ The only thing we need for this is the distribution $p(z \mid \xo)$.
 
 \subsection{The Distribution of $z$}
 
-Need to rewrite.
+For a GMM, the distribution of $z$ is relatively easy to find. 
 
-For a GMM, the distribution of $z$ is easy to find. We write the observed part of
-$z$ as one fixed number $c := w_o^T \xo$, so that
+Let's first rewrite $z$ as,
+
 \[
-  z = c + \sum_{d \in \mathrm{mis}} w_d\, x_d .
+  z = w_o^T \xo + \sum_{d \in \mathrm{mis}} w_d\, x_d,
 \]
-The only uncertain part is the weighted sum of the missing features.
 
-Assume for a moment that we know which component $k$ the point comes from. Then
-every missing feature is a one-dimensional Gaussian of its own, and the missing
+where the only uncertain part is the sum of the missing features.
+
+Then recall that every missing feature is a one-dimensional Gaussian of its own, and the missing
 features are independent of each other,
 \[
   x_d \mid k \sim \mathcal{N}(\mu_{kd}, \sigma_{kd}^2) \quad \text{for every } d \in \mathrm{mis}.
 \]
-A weighted sum of independent Gaussians is again Gaussian, and adding the fixed
-number $c$ only shifts it. So within component $k$, $z$ is Gaussian as well,
+
+A weighted sum of independent Gaussians is again Gaussian. So within component $k$, $z$ is Gaussian as well,
 $z \mid k \sim \mathcal{N}(m_k, v_k)$, and we only need its mean $m_k$ and its
 variance $v_k$.
 
@@ -594,17 +594,14 @@ its mean,
 \[
   m_k = \E[z \mid k] = c + \sum_{d \in \mathrm{mis}} w_d\, \E[x_d \mid k] = w_o^T \xo + \sum_{d \in \mathrm{mis}} w_d\, \mu_{kd}.
 \]
-For the variance, the fixed number $c$ does not vary and adds nothing. Since the
-missing features are independent, the variance of their sum is the sum of their
+
+Similarly, the variance of their sum is the sum of their
 variances, and multiplying $x_d$ by $w_d$ multiplies its variance by $w_d^2$. So
 \[
   v_k = \mathrm{Var}[z \mid k] = \sum_{d \in \mathrm{mis}} \mathrm{Var}[w_d\, x_d \mid k] = \sum_{d \in \mathrm{mis}} w_d^2\, \sigma_{kd}^2.
 \]
-For example, with $z = 0.5 + 2 x_2 - x_3$, $x_2 \mid k \sim \mathcal{N}(1, 1)$ and
-$x_3 \mid k \sim \mathcal{N}(0, 4)$, we get $m_k = 0.5 + 2 \cdot 1 - 1 \cdot 0 = 2.5$
-and $v_k = 2^2 \cdot 1 + (-1)^2 \cdot 4 = 8$.
 
-In reality, we do not know which component the point comes from. Every component
+Lastly, we don't  know which component the point comes from. Every component
 gives its own Gaussian for $z$, and the observed features tell us how likely each
 component is, through the responsibilities $\tilde{\pi}_k(\xo)$ of
 Section~\ref{subsec:gmm-cf}. The distribution of $z$ is therefore the mixture of
