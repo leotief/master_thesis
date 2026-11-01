@@ -1,26 +1,6 @@
 # how a logistic regression is trained when some training points have a
-# missing feature, step by step, on the 2d toy problem of utils/toy.py where
-# everything can be drawn: the points, the decision boundary, and w itself (a
-# point in a plane). how the prediction of an incomplete point is computed is
-# in the pcpg step by step (estimate_overview_demo.py). one figure,
-# figures/train/step_by_step.pdf, with pcpg and mc side by side where they
-# differ. one training step is built up at the current w (the one after STEP
-# steps of exact training), then repeated:
-#   setup   the training points, the incomplete ones as lines, and the density model
-#   goal    the lowest point of the loss over w, the average of -log p(y | x_obs)
-#   step 1  predict every point with the current w: sigma(w^T x) for a complete
-#           point, the average along the line for the followed one, exact for
-#           pcpg, from MC_FEW random fill-ins for mc
-#   step 2  the loss: -log of the probability of the right label, for the
-#           followed point and for all points, and their average L(w)
-#   step 3  change w a little to lower the loss, and repeat: the paths of w over
-#           the loss with every estimator, and the loss during training, mc
-#           stops short
-#   result  the boundaries at the end of training
-# the estimators, the density and the loss are the ones of train.py, on two
-# features (the figure leaves out the small l2 penalty of the loss). mc gets
-# MC_FEW samples, so what it does is visible, and step 3 also shows it with as
-# many samples as pcpg has nodes.
+# missing feature on the 2d toy problem of utils/toy.py where
+
 # the plotting is in utils/plots.py
 
 import os
@@ -164,4 +144,4 @@ d = dict(**toy, mc_few=MC_FEW, mc_same=MC_SAME, label=label, step_epoch=STEP, w_
          gaps_mc=[gaps(p) for p in paths_mc], gaps_mc_same=gaps(path_mc_same))
 
 os.makedirs(OUT_DIR, exist_ok=True)
-plot_training_step_by_step(d, f"{OUT_DIR}/step_by_step.pdf")
+plot_training_step_by_step(d, f"{OUT_DIR}/steps.pdf")

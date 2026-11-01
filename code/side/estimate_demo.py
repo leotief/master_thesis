@@ -1,50 +1,11 @@
 # how the expected prediction E[sigmoid(w^T x) | x_obs] of an incomplete point
-# is computed, step by step, on the 2d toy problem of utils/toy.py (the
-# classifier w*, the density model and the point of the training step by step).
+# is computed, step by step, on the 2d toy problem of utils/toy.py .
 # the pcpg figure sets the goal and computes it, the mc and the gmm
 # gauss-hermite figures only show how they reach the same goal differently.
-# all three in figures/estimate_overview/:
-#   pcpg.pdf
-#     setup       the classifier sigmoid(w^T x), the density model p(x), and a
-#                 point with a missing feature: a line of possible points
-#     goal        its prediction, the average of sigmoid(w^T x) along the line,
-#                 weighted by p(x_mis | x_obs): in z, the area under sigmoid(z) x p(z)
-#     step 1      pg: where the bells come from, and how they add up to sigmoid(z)
-#     step 2      hs: where the waves come from, and how they add up to a bell
-#     step 3      the area under wave x p(z) comes from the model's cf
-#     step 4      the wave areas add up to the area under a bell (1, 2, all waves)
-#     step 5      the bell areas add up to the goal (1, 2, all bells)
-#   mc.pdf (MCBaseline in utils/baselines.py)
-#     step 1      draw the missing feature from the model, which gives samples of z
-#     step 2      the prediction sigmoid(z_i) at every sample, the estimate is their average
-#     step 3      the average is the area under sigmoid(z) x the histogram of the
-#                 samples, which closes in on the goal (10, 100, 10000 samples)
-#     step 4      how fast: the error is random and shrinks like 1 / sqrt(n)
-#   gmm_gh.pdf (MixtureGaussHermite in utils/baselines.py)
-#     step 1      p(z) is a mixture of gaussians, so the area is a sum of component areas
-#     step 2      the area of a component is a weighted sum of sigmoid at the
-#                 gauss-hermite points, and where the points come from
-#     step 3      why it works: n points give the exact area under the polynomial
-#                 of degree n - 1 through sigmoid at the points (1, 2, all points)
-#     step 4      the component areas add up to the goal (1, 2, all components)
-# and the four figures of the methods chapter, {bells,waves,cf,summary}.pdf, also
+# the four figures of the methods chapter, {bells,waves,cf,summary}.pdf, also
 # written to thesis/figures/pcpg/. these stay on the setup of main.py (same
 # data, gmm, classifier and test point), which the thesis text describes:
-#   bells    the pg nodes, and the sums of bells closing in on sigmoid(z)
-#   waves    the gauss-hermite nodes, and the sums of waves closing in on a bell
-#   cf       the area under wave x p(z), and that it is the cf
-#   summary  the area under sigmoid(z) x p(z) rebuilt from 1, 2, 4, all bells
-#
-# pcpg uses the best rules found in the demos: golub-welsch for the outer pg
-# points (with the sign flip) and gauss-hermite for the inner hs points.
-# everything only depends on x through z, so it is shown in z. in pcpg the
-# model gives the cf of the missing features at s = -u w_m, which is the same as
-# the cf of the missing part of z at -u. for the gmm z is a mixture of
-# gaussians, z | k ~ N(m_k, v_k) given the observed features, which also gives
-# exact values to compare against. mc needs nothing from the model but samples,
-# drawn as in GMM.sample: a component k from p(k | x_obs), then the missing
-# features from its gaussian, here keeping the component of every sample so it
-# can be coloured.
+
 # the plotting is in utils/plots.py
 
 import os

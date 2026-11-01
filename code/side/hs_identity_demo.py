@@ -1,28 +1,6 @@
 # the hubbard-stratonovich identity: how it works and how well the methods
 # approximate it
 #
-#   e^{-a h^2 / 2} = E[e^{-i u h}],  u ~ N(0, a)
-#
-# this is the inner integral of pcpg (with a = gamma). it turns a gaussian in h
-# into an average of waves e^{-i u h}, which are linear in h in the exponent.
-# with u = sqrt(a) u' and t = sqrt(a) h it is the same for every a,
-#   e^{-t^2 / 2} = E[e^{-i u t}] = E[cos(t u)],  u ~ N(0, 1)
-# (the sin parts cancel, N(0, 1) is symmetric), so everything here uses
-# N(0, 1). the expectation is approximated by picking a few points u_j with
-# weights w_j (random samples or a quadrature rule from utils/quadrature.py):
-#   1. pick points u_j on N(0, 1), with weights w_j
-#   2. every point gives a wave cos(t u_j) in t. points far out give fast waves
-#   3. the weighted sum of the waves approximates the bell e^{-t^2 / 2}: near
-#      t = 0 all waves are in phase, further out they have to cancel
-#   4. a finite sum of waves never decays for good, so beyond some t they stop
-#      cancelling and the error jumps up. more points push that t further out
-#
-# what t means in pcpg: there h = z - 1/(2 gamma), so for small gamma
-# t ~ 1/(2 sqrt(gamma)), e.g. t ~ 3.5 for gamma = 0.02 and t ~ 7 for
-# gamma = 0.005. the result is then multiplied by e^{1/(8 gamma)} ~ e^{t^2 / 2},
-# so what matters there is the error relative to e^{-t^2 / 2}, not the absolute
-# one. that is why small gamma needs many inner points.
-#
 # the figures go to figures/hs_identity/:
 #   steps.pdf         the four steps for STEPS_METHOD with STEPS_N points
 #   points.pdf        which points the different methods pick
@@ -53,7 +31,6 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # the accent colour
 METHODS = {
     "mc":             ("MC",             "0.55",    ":"),
-    "qmc":            ("QMC (Halton)",   "0.15",    "-."),
     "trapezoid":      ("trapezoid",      "#0072B2", "-"),
     "gauss_legendre": ("Gauss-Legendre", "#E69F00", "-"),
     "gauss_hermite":  ("Gauss-Hermite",  "#D55E00", "-"),

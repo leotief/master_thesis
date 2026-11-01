@@ -1,20 +1,5 @@
 # the polya-gamma identity: how it works and how well the methods approximate it
 #
-#   sigmoid(z) = 1/2 e^{z/2} E[e^{-gamma z^2 / 2}],  gamma ~ PG(1, 0)
-#
-# this is the outer integral of pcpg in one dimension. the expectation is
-# approximated by picking a few points gamma_j with weights w_j (random samples
-# or a quadrature rule from utils/quadrature.py, it works the same for both):
-#   1. pick points gamma_j on the PG(1, 0) distribution, with weights w_j
-#   2. every point gives a bell e^{-gamma_j z^2 / 2} in z. small gamma_j gives a
-#      wide bell, large gamma_j a narrow one
-#   3. the weighted sum of the bells approximates E[e^{-gamma z^2 / 2}], which
-#      is exactly sech(z / 2), a bell itself
-#   4. multiplying by 1/2 e^{z/2} tilts this bell into the sigmoid
-# for large positive z the factor e^{z/2} is huge and amplifies the small error
-# of the bell sum in its tail. pcpg avoids this with the sign flip
-# sigmoid(z) = 1 - sigmoid(-z), see pg_estimate.
-#
 # the figures go to figures/pg_identity/:
 #   steps.pdf     the four steps for STEPS_METHOD with STEPS_N points
 #   points.pdf    which points the different methods pick
@@ -22,8 +7,7 @@
 #   mc_check.pdf              the identity with mc for growing sample sizes
 #   <group>_comparison.pdf    the group at a fixed number of points, |z| <= Z_MAX
 #   key_best_comparison.pdf   the key group, every method in its best setup (BEST)
-#   convergence.pdf           mean absolute error vs number of points over
-#                             |z| <= ERR_MAX, all methods and the key group
+#   convergence.pdf           mean absolute error vs number of points over |z| <= ERR_MAX, all methods and the key group
 # the plotting itself is in utils/plots.py
 
 import os
@@ -66,20 +50,7 @@ STEPS_METHOD = "golub_welsch"
 STEPS_N      = 20
 
 # layout of points.pdf: the three rules as columns, spaced in gamma in the
-# first rule row and in log(gamma) right below, then the three sigmoid fits. mc
-# sits on top as the random reference, None leaves a cell empty.
-# why the rules spaced in gamma put their points further right:
-#   - they are built on the plain gamma axis. trapezoid and gauss-legendre
-#     spread their points evenly (or polynomial-like) over [0, 5], so only a few
-#     land where the mass is, around 0.1 to 0.5. the log axis of the plot
-#     stretches small gamma, so evenly spread points look bunched to the right
-#   - golub-welsch is exact for the moments E[gamma^k]. high moments are
-#     dominated by large gamma, so some points go out into the right tail. on
-#     the left the density is extremely flat (like e^{-1/(8 gamma)}), there is
-#     almost no mass below ~0.03 and nothing in the moments asks for points there
-#   - the log rules spread their points over log(gamma) instead, so the left
-#     side gets as many as the right. that is where e^{-gamma z^2 / 2} lives for
-#     large |z|, which is why the log rules also work without the sign flip
+# first rule row and in log(gamma) right below, then the three sigmoid fits
 ROWS = [
     ([None, "mc", None], "random"),
     (["trapezoid", "gauss_legendre", "golub_welsch"], "spaced in $\\gamma$"),
@@ -88,7 +59,7 @@ ROWS = [
 ]
 
 # accuracy plots. z range of the mc check and the comparison plots
-Z_MAX = 30
+Z_MAX = 100
 # mc_check: sample sizes, one set of curves each
 N_SAMPLES = [10, 100, 1000, 10000]
 # comparison plots: number of points every quadrature gets (the sigmoid fits

@@ -1,16 +1,10 @@
-# pcpg: E[sigmoid(w^T x) | x_obs] through the cf of p(x_mis | x_obs), see the
-# methods chapter of the thesis. with z = w^T x and c = 1/(2 gamma):
-#   sigmoid(z)                   = 1/2 E_gamma[exp(z/2 - gamma z^2/2)],      gamma ~ PG(1, 0)
-#   exp(z/2 - gamma z^2/2)       = exp(1/(8 gamma)) E_u[exp(-i u (z - c))],  u ~ N(0, gamma)
-#   E[exp(-i u w_mis^T x_mis)]   = phi(-u w_mis)
-# the integral over gamma (outer) and over u (inner) are each done by
-# quadrature or mc:
+# pcpg: E[sigmoid(w^T x) | x_obs]
+# the integral over gamma (outer) and over u (inner) are each done by quadrature or mc:
 #   PCPG(model)                          gauss-pg over gamma, gauss-hermite over u
 #   PCPG(model, outer="mc")              mc over gamma, gauss-hermite over u
 #   PCPG(model, inner="mc")              gauss-pg over gamma, mc over u
 #   PCPG(model, outer="mc", inner="mc")  mc over both
-#   PCPG(model, inner="exact")           gauss-pg over gamma, the inner integral
-#                                        in closed form (needs z_mixture)
+#   PCPG(model, inner="exact")           gauss-pg over gamma, the inner integral in closed form (needs z_mixture)
 
 from functools import lru_cache
 
@@ -20,7 +14,7 @@ import torch
 from side.utils.pg_density import sample_pg
 from side.utils.quadrature import pg_quadrature
 
-# fn on the points of x_partial in chunks, so that the largest tensor (per_point
+# for batching. fn on the points of x_partial in chunks, so that the largest tensor (per_point
 # elements per point) stays below max_elements. a float for one point (D,), an
 # array (B,) for a batch (B, D)
 def in_chunks(fn, x_partial, per_point, max_elements=2**25):
@@ -30,23 +24,18 @@ def in_chunks(fn, x_partial, per_point, max_elements=2**25):
     return torch.cat([fn(part) for part in x_partial.split(size)]).cpu().numpy()
 
 class PCPG:
-    # model needs characteristic_function and z_mean (z_mixture for inner="exact").
-    # n_outer, n_inner: nodes (quad) or samples (mc) per integral, the defaults
-    # of estimate and estimate_diff. pg_method: the outer rule from
-    # side/utils/quadrature.py. flip: sigma(z) = 1 - sigma(-z) when z is mostly
-    # positive. create it once and reuse it, the rng is seeded here
     def __init__(self, model, outer="quad", inner="quad", n_outer=19, n_inner=20, seed=42,
                  pg_method="golub_welsch", flip=True):
         assert outer in ("quad", "mc") and inner in ("quad", "mc", "exact")
-        self.model = model
-        self.outer, self.inner = outer, inner
-        self.pg_method = pg_method
-        self.n_outer, self.n_inner = n_outer, n_inner
-        self.flip = flip
+        self.model = model # needs characteristic_function and z_mean (z_mixture for inner="exact")
+        self.outer, self.inner = outer, inner # nodes (quad) or samples (mc) per integral
+        self.pg_method = pg_method # the outer rule from side/utils/quadrature.py
+        self.n_outer, self.n_inner = n_outer, n_inner 
+        self.flip = flip # 1 - sigma(-z) when z is mostly positive
         self._rng = np.random.default_rng(seed)
         self._gen = torch.Generator(device=model.device).manual_seed(seed)
 
-        # the nodes of the default counts, computed once
+        # the nodes of the default counts
         if outer == "quad":
             self._outer_nodes(n_outer)
         if inner == "quad":
