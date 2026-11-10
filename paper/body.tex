@@ -1,0 +1,352 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Probabilistic circuits (PCs) are density models that are expressive and tractable at the same time \citep{pc_intro}.
+Because their structure is constrained, a PC answers marginal and conditional queries exactly and in time linear in its size.
+For data with missing features this is exactly what one wants: a PC trained on incomplete data integrates the missing features out instead of guessing them.
+
+When the task is classification, however, PCs are rarely combined with the classifier that is most often used on top of features, a logistic regression (LR).
+The reason is the sigmoid.
+Given a partially observed input $\xo$, the principled prediction of an LR is its expected prediction under the PC,
+\begin{equation}
+  p(y{=}1 \mid \xo) = \E_{p(\xm \mid \xo)} \left[ \sigma(w^T x) \right],
+  \label{eq:goal}
+\end{equation}
+and the sigmoid does not factorise over the features, so the expectation cannot be pushed into the leaves of the circuit.
+Even for a naive Bayes distribution over binary features, computing \eqref{eq:goal} is NP-hard \citep{khosravi2019expect}.
+The tractability of the PC is lost as soon as the sigmoid is put on top.
+
+The usual way to classify with a PC is therefore to avoid the LR altogether: train one joint model $p(x, y)$ and compute the conditional $p(y \mid x)$ by Bayes' rule.
+This keeps everything tractable, but the parameters of the joint model are fitted to explain $x$, not to separate the classes, and in practice the resulting classifier is often worse than a discriminative one.
+
+In this paper we show that the sigmoid does not have to break tractability.
+We rewrite $\sigma$ with two identities, the Pólya--Gamma (PG) identity \citep{polyagamma} and the Hubbard--Stratonovich (HS) identity \citep{stratonovich1957, hubbard1959}, until the only quantity the density has to provide is its conditional characteristic function, which a smooth and decomposable PC computes in a single pass.
+The two remaining one-dimensional integrals are computed by fixed quadrature rules.
+This lets us put a PC and an LR together into one joint model $p(x, y) = p_\theta(x)\, p_w(y \mid x)$ in which both keep their own parameters: the PC models the features, the LR is trained discriminatively, and missing features are marginalised in a principled way, both at test time and during training.
+
+Our contributions are:
+\begin{itemize}
+  \item \textbf{PGHS}, a deterministic and differentiable estimator of the expected prediction \eqref{eq:goal} that only needs the characteristic function of the density (\cref{sec:sigmoid-to-cf,sec:quadrature}).
+  \item The conditional characteristic function of a smooth and decomposable PC in one pass through the circuit (\cref{sec:pc-cf}).
+  \item \textbf{Gauss--PG}, a Gaussian quadrature rule for the Pólya--Gamma distribution, together with a sign flip that keeps the error small for large positive scores (\cref{sec:quadrature}).
+  \item Training an LR on incomplete data through PGHS (\cref{sec:training}), and experiments that show that PGHS is orders of magnitude more accurate than Monte Carlo at the same budget and trains the same classifier as the exact expectation (\cref{sec:experiments}).
+\end{itemize}
+
+\section{A Logistic Regression on Top of a Probabilistic Circuit}
+\label{sec:setup}
+
+\paragraph{Probabilistic circuits.}
+A PC is a computational graph of sum nodes, product nodes and leaves, where every leaf is a simple distribution over a single feature, for example a Gaussian \citep{pc_intro, spn}.
+Every node has a scope, the set of features it is defined over.
+A PC is \emph{smooth} if the children of every sum node have the same scope, and \emph{decomposable} if the children of every product node have disjoint scopes.
+These two properties make expectations of functions that factorise over the features tractable: for $f(x) = \prod_d f_d(x_d)$, the expectation $\E[f(x)]$ is computed by evaluating the circuit once with every leaf replaced by $\E_{\text{leaf}}[f_d(x_d)]$.
+With $f_d = 1$ for the missing features this gives the marginal $p(\xo)$, and with it the conditional $p(\xm \mid \xo)$.
+A Gaussian mixture model (GMM) with diagonal covariances is the simplest such circuit, a single sum node over products of Gaussian leaves.
+
+\paragraph{The joint model.}
+We split an input $x \in \R^d$ into its observed features $\xo$ and its missing features $\xm$, and the weights $w$ of an LR accordingly into $w_o$ and $w_m$, so that the score is
+\[
+  z = w^T x = w_o^T \xo + w_m^T \xm.
+\]
+The joint model consists of a PC $p_\theta(x)$ over the features and an LR $p_w(y{=}1 \mid x) = \sigma(w^T x)$, with separate parameters $\theta$ and $w$.
+For a complete input it predicts like the LR.
+For an incomplete input it predicts with the expected prediction \eqref{eq:goal}, the average of the LR over all values of the missing features that the PC considers plausible.
+The obvious way to compute it is Monte Carlo (MC): draw $\xm \sim p_\theta(\xm \mid \xo)$ and average $\sigma(w^T x)$.
+This needs many samples for a precise answer, it is random, and, as we will see in \cref{sec:training}, it biases training.
+Mean imputation, $\sigma(w_o^T \xo + w_m^T \E[\xm \mid \xo])$, is cheap but biased, since the sigmoid is not linear \citep{khosravi2019expect}.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{figures/pghs/bells.pdf}
+  \caption{The PG identity: the sigmoid as an average of bells $\tfrac{1}{2} e^{z/2 - \gamma z^2/2}$ over $\gamma \sim \PG(1,0)$, with an increasing number of bells.}
+  \label{fig:bells}
+\end{figure}
+
+\section{From the Sigmoid to the Characteristic Function}
+\label{sec:sigmoid-to-cf}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.62\textwidth]{figures/pghs/summary.pdf}
+  \caption{The expected prediction as a sum of bells. $p(y{=}1 \mid \xo)$ is the area under $\sigma(z)\, p(z \mid \xo)$ (dashed). The areas under the weighted bells times $p(z \mid \xo)$ (shaded), each computed from the CF of the density, add up to it.}
+  \label{fig:summary}
+\end{figure*}
+
+\paragraph{Sigmoid as a sum of bells.}
+The PG identity \citep{polyagamma} writes the sigmoid as an expectation over $\gamma \sim \PG(1,0)$,
+\begin{equation}
+  \sigma(z) = \tfrac{1}{2} e^{z/2}\, \E_{\gamma} \left[ e^{-\gamma z^2 / 2} \right].
+  \label{eq:pg}
+\end{equation}
+For every $\gamma$, the term inside is a bell, and the sigmoid is a weighted average of infinitely many of them (\cref{fig:bells}).
+Inserting \eqref{eq:pg} into \eqref{eq:goal} replaces the sigmoid, but $x$ now appears quadratically,
+\[
+  p(y{=}1 \mid \xo) = \tfrac{1}{2} \E_{\gamma} \E_{\xm \mid \xo} \left[ e^{z/2 - \gamma z^2 / 2} \right],
+\]
+and a quadratic form in $x$ does not factorise over the features either.
+
+\paragraph{Bells as a sum of waves.}
+The HS identity removes the square at the cost of a second auxiliary variable,
+\[
+  e^{-a h^2 / 2} = \E_{u \sim \mathcal{N}(0, a)} \left[ e^{-i u h} \right].
+\]
+To apply it, we complete the square in the exponent with $c := \frac{1}{2\gamma}$,
+\[
+  \tfrac{1}{2} z - \tfrac{1}{2} \gamma z^2 = -\tfrac{1}{2} \gamma (z - c)^2 + \tfrac{1}{8\gamma},
+\]
+and use HS with $a = \gamma$ and $h = z - c$:
+\begin{equation}
+  e^{z/2 - \gamma z^2/2} = e^{\frac{1}{8\gamma}}\, \E_{u \mid \gamma} \left[ e^{-iu(z - c)} \right],
+  \label{eq:hs}
+\end{equation}
+with $u \mid \gamma \sim \mathcal{N}(0, \gamma)$.
+Since $u$ and $-u$ are equally likely, the imaginary parts cancel, and every bell becomes an average of cosine waves $\cos(u(z - c))$.
+
+\paragraph{Waves under the circuit.}
+The exponent in \eqref{eq:hs} is linear in $z$, so it factorises over the features.
+After swapping the expectation over $\xm$ inside, which is allowed because the integrand has modulus at most one for every fixed $\gamma$, the expectation over $\xm$ is
+\begin{align*}
+  \E_{\xm \mid \xo} \left[ e^{-iu(z - c)} \right]
+  &= e^{iu(c - w_o^T \xo)}\, \E_{\xm \mid \xo} \left[ e^{-iu\, w_m^T \xm} \right] \\
+  &= e^{iu(c - w_o^T \xo)}\, \phi_{\xm \mid \xo}(-u w_m),
+\end{align*}
+where $\phi_{\xm \mid \xo}(s) = \E[e^{i s^T \xm} \mid \xo]$ is the conditional characteristic function (CF) of the missing features.
+Putting everything together gives an exact expression for the expected prediction,
+\begin{align}
+  p(y{=}1 \mid \xo) &= \tfrac{1}{2} \E_{\gamma} \E_{u \mid \gamma} \left[ f(u, \gamma) \right], \label{eq:pghs} \\
+  f(u, \gamma) &= e^{\frac{1}{8\gamma}}\, e^{iu (\frac{1}{2\gamma} - w_o^T \xo)}\, \phi_{\xm \mid \xo}(-u w_m). \notag
+\end{align}
+The result is real, so in practice only the real part of $f$ is used.
+\Cref{fig:summary} shows the idea: the expected prediction is the area under $\sigma(z)\, p(z \mid \xo)$, the sigmoid is replaced by bells, and the area under every bell times $p(z \mid \xo)$ is obtained from the CF.
+The density enters \eqref{eq:pghs} only through its CF, and the remaining integrals over $\gamma$ and $u$ are one-dimensional and independent of the number of features.
+
+\section{The Characteristic Function of a Circuit}
+\label{sec:pc-cf}
+
+The CF is the expectation of $e^{i s^T x} = \prod_d e^{i s_d x_d}$, a function that factorises over the features, so a smooth and decomposable PC computes it in one pass.
+For the conditional CF we write
+\[
+  \phi_{\xm \mid \xo}(s) = \frac{1}{p(\xo)} \int e^{i s^T \xm}\, p(\xo, \xm)\, \mathrm{d}\xm.
+\]
+The integral is one pass through the circuit in which every leaf of an observed feature returns its density at $x_d$, as in a likelihood evaluation, and every leaf of a missing feature returns its own CF at $s_d$, for a Gaussian leaf $\exp(i s_d \mu - s_d^2 \sigma^2 / 2)$.
+Dividing by the marginal $p(\xo)$, a pass with the missing leaves set to one, gives the conditional CF.
+The values are complex, and we propagate them in log space, where products become sums and sums a complex log-sum-exp.
+For a diagonal GMM this pass reduces to the closed form
+\[
+  \phi_{\xm \mid \xo}(s) = \sum_{k=1}^{K} \tilde{\pi}_k(\xo)\, e^{i s^T \mu_k^m - \frac{1}{2} s^T \Sigma_k^m s},
+\]
+with the responsibilities $\tilde{\pi}_k(\xo) \propto \pi_k\, \mathcal{N}(\xo; \mu_k^o, \Sigma_k^o)$ and the means and covariances $\mu_k^m, \Sigma_k^m$ of the components restricted to the missing features.
+The responsibilities depend only on $\xo$, so they are computed once per input and reused for every frequency.
+The sign flip of \cref{sec:quadrature} additionally needs the conditional mean $\E[w^T x \mid \xo]$, an expectation of a sum of univariate functions, which is tractable for the same reason.
+
+\section{Deterministic Quadrature for the Two Expectations}
+\label{sec:quadrature}
+
+The expression \eqref{eq:pghs} leaves an expectation over $\gamma$ and one over $u$.
+Both could be sampled, but the factor $e^{1/(8\gamma)}$ makes this hopeless: a single inner sample has the second moment $e^{1/(4\gamma)}$, while the density of $\PG(1,0)$ decays only like $e^{-1/(8\gamma)}$ towards zero, so the variance of the sampled estimator is infinite.
+We therefore replace both expectations by Gaussian quadrature rules.
+
+\paragraph{Inner expectation: Gauss--Hermite.}
+For fixed $\gamma$, $u \sim \mathcal{N}(0, \gamma)$ is Gaussian, so the $N$ nodes $t_i$ and weights $\omega_i$ of Gauss--Hermite quadrature give
+\[
+  \E_{u \mid \gamma} \left[ f(u, \gamma) \right] \approx \frac{1}{\sqrt{\pi}} \sum_{i=1}^{N} \omega_i\, f\big(\sqrt{2\gamma}\, t_i, \gamma\big).
+\]
+
+\paragraph{Outer expectation: Gauss--PG.}
+There is no standard quadrature rule for $\PG(1,0)$, so we construct the Gaussian one with the Golub--Welsch algorithm \citep{golubwelsch1969}, which only needs the first $2M$ moments.
+They follow from the Laplace transform $\mathcal{L}(t) = \E[e^{-t\gamma}] = \operatorname{sech}(\sqrt{t/2})$ as $\E[\gamma^k] = (-1)^k \mathcal{L}^{(k)}(0)$.
+The Hankel matrix of these moments is extremely ill-conditioned (in double precision its Cholesky factorisation fails from $M = 20$ on), so we run the whole algorithm with 200 significant digits.
+The resulting nodes $\gamma_j$ and weights $w_j$ depend neither on the data nor on the model, and are computed once.
+A Gaussian rule keeps its nodes away from $\gamma = 0$: for $M = 20$ the smallest node is $\gamma \approx 0.044$, where $e^{1/(8\gamma)} \approx 17$.
+Rules with nodes closer to zero, for example trapezoid rules in $\log \gamma$, approximate the sigmoid alone more accurately, but inside PGHS this factor amplifies their error until it overflows.
+
+\paragraph{Sign flip.}
+By \eqref{eq:pg}, a rule for $\gamma$ approximates $\sigma(z)$ by $\frac{1}{2} e^{z/2} \sum_j w_j e^{-\gamma_j z^2/2}$, so its error in the Laplace transform is multiplied by $\frac{1}{2} e^{z/2}$.
+For $z < 0$ this damps the error, for $z > 0$ it amplifies it, and for large $z$ the finite sum of bells falls back to $0$ while $\sigma(z) \to 1$.
+We use the symmetry $\sigma(z) = 1 - \sigma(-z)$: if $\E[w^T x \mid \xo] > 0$, we run the estimator with $-w$ and return one minus its result.
+For Gauss--PG with $20$ nodes this reduces the largest error of the sigmoid over $|z| \leq 30$ from about $1$ to $6 \cdot 10^{-7}$.
+
+\paragraph{The estimator.}
+Combining both rules gives the deterministic estimator
+\begin{equation}
+  \hat{p} = \frac{1}{2\sqrt{\pi}} \sum_{j=1}^{M} w_j \sum_{i=1}^{N} \omega_i\, \mathrm{Re}\, f\big(\sqrt{2\gamma_j}\, t_i, \gamma_j\big),
+  \label{eq:estimator}
+\end{equation}
+summarised in \cref{alg:pghs}.
+It costs $M \cdot N$ evaluations of the CF, which are batched into one pass through the circuit.
+It has no variance, and since every step is differentiable, gradients with respect to $w$ (and $\theta$) are available by automatic differentiation.
+Its only error is the quadrature error, which grows with the spread of $z$ (\cref{sec:experiments}).
+
+\begin{algorithm}[t]
+  \caption{PGHS}
+  \label{alg:pghs}
+  \begin{algorithmic}[1]
+    \REQUIRE weights $w$, input $\xo$, circuit with CF $\phi_{\xm \mid \xo}$, Gauss--PG rule $(\gamma_j, w_j)_{j=1}^M$, Gauss--Hermite rule $(t_i, \omega_i)_{i=1}^N$
+    \STATE $\mathrm{flip} \gets \E[w^T x \mid \xo] > 0$
+    \IF{$\mathrm{flip}$}
+      \STATE $w \gets -w$
+    \ENDIF
+    \FOR{$j = 1, \dots, M$ and $i = 1, \dots, N$}
+      \STATE $u_{ij} \gets \sqrt{2\gamma_j}\, t_i$
+      \STATE $a_{ij} \gets u_{ij} \big(\frac{1}{2\gamma_j} - w_o^T \xo\big)$
+      \STATE $f_{ij} \gets e^{1/(8\gamma_j) + i a_{ij}}\, \phi_{\xm \mid \xo}(-u_{ij} w_m)$
+    \ENDFOR
+    \STATE $p \gets \frac{1}{2\sqrt{\pi}} \sum_{j} \sum_{i} w_j\, \omega_i\, \mathrm{Re}\, f_{ij}$
+    \STATE \textbf{return} $1 - p$ if $\mathrm{flip}$, else $p$
+  \end{algorithmic}
+\end{algorithm}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/estimate/gmm/comparison_0.5_20_60_norm_C1e3.pdf}
+  \caption{Estimating the expected prediction on standardised data with $C = 10^{-3}$, against the number of features, for three missing rates. Top: RMSE against the exact reference over 50 test points. Bottom: time for all 2{,}000 test points. PGHS and MC use the same budget of $1{,}200$ evaluations.}
+  \label{fig:estimate}
+\end{figure*}
+
+\section{Training the Joint Model on Incomplete Data}
+\label{sec:training}
+
+PGHS makes it possible to train both parts of the joint model when the training points themselves have missing features.
+
+\paragraph{The circuit.}
+The PC is fitted by maximising the marginal likelihood $\sum_n \log p_\theta(\xo_n)$ of the observed features.
+This is standard for PCs: the leaves of the missing features are set to one and the circuit is evaluated as usual.
+No PGHS is needed in this step.
+
+\paragraph{The classifier.}
+The LR is trained on the same prediction it uses at test time.
+With $p_n = p(y_n{=}1 \mid \xo_n)$ computed by PGHS, we minimise the marginal negative log-likelihood with the $L_2$ penalty of a standard LR,
+\begin{equation}
+  J(w) = -\frac{1}{n} \sum_{n} \log p(y_n \mid \xo_n) + \frac{\lVert w \rVert^2}{2 C n},
+  \label{eq:marginal-likelihood}
+\end{equation}
+where $\log p(y_n \mid \xo_n) = y_n \log p_n + (1 - y_n) \log(1 - p_n)$.
+The gradient flows through \eqref{eq:estimator}, and $w$ is trained with Adam on minibatches, starting from $w = 0$.
+Since the quadrature error can push $p_n$ slightly outside $[0, 1]$, we clamp it to $[\varepsilon, 1 - \varepsilon]$.
+In our experiments the PC is fitted first and kept fixed while the LR is trained, so the classifier is trained only for classification, and the PC only for the features.
+
+\paragraph{Why not Monte Carlo.}
+MC can be used inside \eqref{eq:marginal-likelihood} as well, but the loss takes the logarithm of the estimate.
+By Jensen's inequality, $-\log$ of an average of $S$ samples is biased upwards, by about $\mathrm{Var}/(2 S p^2)$, and the bias is largest where $p$ is small, which shrinks $w$.
+PGHS has no such bias, its deterministic error is the same at every step of training.
+
+\section{Experiments}
+\label{sec:experiments}
+
+We first measure how accurately PGHS computes the expected prediction, and then train an LR on incomplete data with it.
+In both experiments the density is a GMM with $K = 4$ diagonal components, the simplest PC.
+For a GMM the expected prediction can also be computed exactly: given $\xo$, the score $z$ is a mixture of Gaussians $\mathcal{N}(m_k, v_k)$ with $m_k = w_o^T \xo + w_m^T \mu_k^m$ and $v_k = \sum_{d \in \mathrm{mis}} w_d^2 \sigma_{kd}^2$, so \eqref{eq:goal} is a sum of one-dimensional integrals.
+We call this the \emph{exact} reference.
+It needs to enumerate the components of the mixture, which is only feasible for small circuits, while PGHS only needs the CF.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/train/gmm/comparison_0.5_20_60_difference.pdf}
+  \caption{Training on incomplete data: mean absolute difference between the expected predictions of the LRs trained with MC and PGHS and those of the LR trained with the exact expectation, on the incomplete test points. Solid: raw data with $C = 1$, dashed: standardised data with $C = 10^{-3}$.}
+  \label{fig:training-difference}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figures/train/gmm/comparison_0.5_20_60_accuracy_own.pdf}
+  \caption{Accuracy on the incomplete test points, every model with its own prediction rule. Top: raw data, bottom: standardised data. The band is the LR trained on complete data, predicting with the exact expected prediction.}
+  \label{fig:training-accuracy}
+\end{figure*}
+
+\paragraph{Data.}
+The data are generated with scikit-learn's \texttt{make\_classification}: 10{,}000 points, half of the features informative and half noise, 8{,}000 for training and 2{,}000 for testing.
+The number of features $d$ ranges from $5$ to $5{,}000$ in steps of $\sqrt{10}$, and a fraction $\rho \in \{0.3, 0.5, 0.8\}$ of the features of every incomplete point is hidden at random.
+
+\subsection{Estimating the Expected Prediction}
+\label{sec:results-estimate}
+
+\paragraph{Setup.}
+The GMM and the LR are fitted on the complete training points, and the expected prediction is estimated for the incomplete test points.
+PGHS uses $M = 20$ Gauss--PG and $N = 60$ Gauss--Hermite nodes, and MC gets the same budget of $1{,}200$ samples.
+We also report \emph{PGHS exact inner}, PGHS with the inner expectation over $z$ in closed form for every Gaussian component, whose error is that of the Gauss--PG rule alone.
+The error is the RMSE against the exact reference over 50 test points, and the time is that of one batched call on all 2{,}000 test points on a GPU.
+
+\paragraph{The scale of the score.}
+On the raw data with the default LR ($C = 1$), PGHS is orders of magnitude more accurate than MC for few features, but from about $1{,}000$ features on its error grows quickly and at $5{,}000$ features exceeds that of MC.
+The cause is the spread of $z$: the informative features of \texttt{make\_classification} have a variance that grows with their number, and the LR overfits many features, so $\mathrm{sd}(z)$ grows to about $12$ (\cref{tab:sd-z}) and the quadrature rules lose accuracy.
+Standardising the features and regularising the LR more strongly ($C = 10^{-3}$) keeps $\mathrm{sd}(z)$ below $2$ for every $d$ and costs no accuracy; from $d = 1{,}581$ on the regularised LR is even more accurate, because the default one overfits.
+
+\begin{table}[t]
+  \centering
+  \caption{The LR on the standardised data with the default and a strong penalty: the standard deviation of $z = w^T x$ over the training points and the test accuracy.}
+  \label{tab:sd-z}
+  \small
+  \begin{tabular}{rrrrr}
+    \toprule
+     & \multicolumn{2}{c}{$C = 1$} & \multicolumn{2}{c}{$C = 10^{-3}$} \\
+    $d$ & $\mathrm{sd}(z)$ & acc. & $\mathrm{sd}(z)$ & acc. \\
+    \midrule
+    5    & $3.70$  & $0.888$ & $1.12$ & $0.888$ \\
+    16   & $1.40$  & $0.721$ & $0.78$ & $0.713$ \\
+    50   & $2.14$  & $0.797$ & $0.99$ & $0.794$ \\
+    158  & $2.64$  & $0.805$ & $1.16$ & $0.798$ \\
+    500  & $3.07$  & $0.813$ & $1.25$ & $0.806$ \\
+    1581 & $5.43$  & $0.764$ & $1.36$ & $0.776$ \\
+    5000 & $12.42$ & $0.702$ & $1.65$ & $0.722$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Results.}
+With standardised features and $C = 10^{-3}$ (\cref{fig:estimate}), PGHS reaches an RMSE of about $10^{-7}$ for every number of features and every missing rate, and PGHS exact inner about $3 \cdot 10^{-8}$.
+MC stays between $10^{-3}$ and $10^{-2}$, four orders of magnitude worse at the same budget, and mean imputation is worse still.
+The error of PGHS thus depends on the spread of $z$, not on the number of features or the missing rate.
+The time of PGHS and MC grows linearly in $d$, and from $d = 16$ on PGHS is about twice as fast as MC.
+
+\subsection{Training with Missing Features}
+\label{sec:results-training}
+
+\paragraph{Setup.}
+Now the training points are incomplete as well, with $d \in \{5, 10, 20, 50, 100\}$, and the GMM is fitted on them.
+We compare five LRs without intercept.
+\emph{Complete data} is fitted on the complete training points, an oracle that training with missing features cannot beat in principle.
+\emph{Mean imputation} is fitted on the training points with the missing features replaced by their means.
+\emph{MC}, \emph{PGHS} and \emph{Exact} minimise \eqref{eq:marginal-likelihood} with the expected prediction from $1{,}200$ MC samples, from PGHS with $M = 20$ and $N = 60$, or from the exact reference with $64$ Gauss--Hermite nodes per component.
+The last three are trained identically, with Adam for 100 epochs on the same minibatches of 1{,}024 points and a learning rate of $0.01$, so they differ only in the estimate of the expectation.
+We train once on the raw data with $C = 1$ and once on the standardised data with $C = 10^{-3}$.
+At test time every model predicts on the incomplete test points with its own rule: mean imputation with the training means, MC and PGHS with their estimate, and the complete-data LR with the exact expected prediction.
+
+\paragraph{Does PGHS train the right classifier?}
+\Cref{fig:training-difference} compares the classifiers trained with MC and PGHS to the one trained with the exact expectation.
+On the standardised data the predictions of the PGHS classifier differ from those of the exact one by about $2 \cdot 10^{-8}$ in every setting, so training through PGHS gives the exact classifier up to numerical precision.
+On the raw data the difference stays below $10^{-5}$ in most settings and grows with the spread of $z$, as in the first experiment.
+The classifier trained with MC differs by $3 \cdot 10^{-5}$ to $2 \cdot 10^{-3}$, and the difference grows with the number of features, as the bias of $-\log$ of the MC average suggests.
+
+\paragraph{Is the classifier good?}
+\Cref{fig:training-accuracy} shows the accuracy on the incomplete test points.
+The LRs trained on the marginal likelihood stay close to the complete-data oracle in every setting, and on the raw data they are mostly ahead of mean imputation.
+On the raw data with $80\%$ missing features, MC and PGHS are up to $2$ percentage points more accurate than the LR trained on complete data, and at $20$ features they are $2$ to $3$ points ahead of it.
+On the standardised data all models are within about $2$ percentage points of each other, without a consistent winner.
+At this budget MC is not much worse in accuracy than PGHS, although its classifier is further from the exact one.
+
+\section{Related Work}
+\label{sec:related-work}
+
+\paragraph{Prediction with missing features.}
+The most common way to handle missing features is to impute them, with the mean, by chained equations \citep{mice}, random forests \citep{missforest} or deep generative models \citep{yoon2018gain, mattei2019miwae, ipsen2021notmiwae}, and then apply the classifier.
+A single imputation ignores the uncertainty about the missing features.
+Other approaches train a separate model per pattern of missing features \citep{saartsechansky2007, stempfle2025patternbypattern} or a network that adapts to the pattern \citep{lemorvan2020neumiss}; \citet{ibrahim2005glm} review the methods for generalised linear models.
+We instead marginalise the missing features under an explicit density.
+
+\paragraph{Expected predictions.}
+\citet{khosravi2019expect} show that the expected prediction \eqref{eq:goal} of an LR is NP-hard even under naive Bayes, and make it tractable by fitting a naive Bayes over binary features that is conformant with the LR, so that the expectation becomes a marginal query.
+This keeps the feature distribution simple and has to be refitted whenever the classifier changes; we keep a rich density over continuous features and rewrite the sigmoid instead.
+\citet{jiang2020logreg} fit a joint Gaussian model of the features together with an LR from incomplete data with a stochastic EM algorithm and predict with MC, the baseline we compare against.
+The PG identity \citep{polyagamma} is best known for Gibbs sampling in Bayesian logistic regression, where it makes the conditional of the weights Gaussian; we use it to make the expectation over the features tractable.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We showed that a logistic regression can be put on top of a probabilistic circuit without losing tractability.
+With the Pólya--Gamma and Hubbard--Stratonovich identities, the expected prediction under the circuit reduces to the circuit's conditional characteristic function and two one-dimensional integrals, which PGHS computes deterministically with Gauss--PG and Gauss--Hermite quadrature.
+The circuit and the classifier form one joint model with separate parameters: the circuit marginalises the missing features, and the classifier is trained discriminatively on the marginal likelihood.
+In our experiments PGHS is about four orders of magnitude more accurate than Monte Carlo at the same budget, and trains the same classifier as the exact expectation.
+
+The accuracy of PGHS depends on the spread of the score $z$; when it is large, standardisation and regularisation are needed.
+Our experiments use a GMM, the simplest circuit, for which an exact reference exists.
+Next steps are deeper circuits, a comparison against generative classifiers built from a circuit over $(x, y)$, and training the circuit and the classifier jointly through PGHS.

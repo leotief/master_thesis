@@ -1,14 +1,13 @@
 \chapter{Discussion}
 \label{cha:discussion}
 
-\section{Predicting with PCPG}
-
-\subsection{Bias and Variance}
+\section{Bias and Variance}
 \label{sec:bias-variance}
 
-We compare the bias and variance of MC with PCPG-MC, which samples both expectations, and PCPG, which computes both by quadrature.
+% TODO: bias and variance of CFI, compared with MC.
 
-\subsubsection{MC Estimator}
+
+\subsection{MC Estimator}
 
 The MC estimator draws $N$ samples ${\xm}^{(i)} \sim p(\xm \mid \xo)$ and returns
 \[
@@ -29,128 +28,6 @@ using $Y^2 \leq Y$ on $[0,1]$ and $p(1-p) \leq 1/4$. Therefore
 \[
   \mathrm{Var}\!\left[\widehat{p}_{\mathrm{MC}}(N)\right] = \frac{\sigma^2_{\mathrm{MC}}}{N} \leq \frac{1}{4N}.
 \]
-
-\subsubsection{PCPG-MC Estimator}
-
-PCPG-MC draws $M$ outer samples $\gamma_j \sim \PG(1,0)$ and, for each of them, $L$ inner samples $u_{ij} \sim \mathcal{N}(0, \gamma_j)$ (Section~\ref{subsec:pcpg-mc}). With $Z := \tfrac{1}{2}\mathrm{Re}[f(u, \gamma)]$ for a single sample, it returns
-\[
-  \widehat{p}_{\mathrm{PCPG\text{-}MC}}(M,L) = \frac{1}{ML}\sum_{j=1}^{M}\sum_{i=1}^{L} Z_{ij}.
-\]
-
-\paragraph{Bias.}
-PCPG-MC is unbiased as well. Both expectations are approximated by ordinary MC, so by linearity of expectation the estimator equals the true double integral, which is $p(y \mid \xo)$ by the PG and Hubbard--Stratonovich identities.
-
-\paragraph{Output range.}
-Since $|\phi_{\xm\mid\xo}| \leq 1$, a single sample satisfies $|Z| \leq \tfrac{1}{2}e^{1/(8\gamma)}$.
-Because $\gamma \sim \PG(1,0)$ can be arbitrarily small, this bound is unbounded, so individual PCPG samples are not confined to $[0,1]$ and can be negative or exceed $1$, while every MC sample lies in $(0,1)$.
-
-\paragraph{Variance.}
-The estimator has two nested levels of randomness. For a fixed $\gamma_j$, the average of its $L$ inner samples has the conditional variance $\sigma^2_{A,\gamma_j}/L$, with $\sigma^2_{A,\gamma} := \mathrm{Var}_{u \mid \gamma}[Z \mid \gamma]$. The law of total variance over both levels and the $M$ independent outer samples give
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG\text{-}MC}}(M,L)\right] = \frac{\sigma^2_A}{ML} + \frac{\sigma^2_B}{M},
-  \qquad
-  \sigma^2_A := \E_\gamma\bigl[\sigma^2_{A,\gamma}\bigr],
-  \quad
-  \sigma^2_B := \mathrm{Var}_\gamma\!\left[\E_{u \mid \gamma}[Z \mid \gamma]\right].
-\]
-$\sigma^2_A$ measures how much the inner expectation fluctuates for a typical $\gamma$, and $\sigma^2_B$ how much $\gamma$ itself shifts the result.
-
-\paragraph{The inner variance is infinite.}
-The problem comes from completing the square in Trick~2, which introduced the factor $e^{1/(8\gamma)}$. For a fixed $z$, the inner expectation is known exactly from the HS identity,
-\[
-  \E_{u \sim \mathcal{N}(0,\gamma)}\!\left[ e^{-iu(z - c)} \right] = \exp\!\left( -\tfrac{1}{2}\gamma \left( z - c \right)^2 \right) \approx e^{-1/(8\gamma)} \quad \text{for small } \gamma,
-\]
-which is tiny. Multiplied by $e^{1/(8\gamma)}$ it gives a value of order one. So the inner average has to produce a tiny number from terms of modulus one that almost cancel, and every bit of noise in that average is amplified by $e^{1/(8\gamma)}$, which is already about $2.7 \cdot 10^{5}$ for $\gamma = 0.01$.
-In terms of variance, a single inner sample has the second moment $e^{1/(4\gamma)}$. Near zero the density of $\PG(1,0)$ decays only like $e^{-1/(8\gamma)}$, which is not fast enough to compensate, so averaged over $\gamma$ the second moment is infinite: formally $\sigma^2_A = \infty$.
-Small values of $\gamma$ are rare, which is why the estimator still works in practice, but when they occur they produce extreme samples.
-
-\paragraph{The outer variance shrinks with more missing features.}
-For a GMM with diagonal covariances, the characteristic function of the missing features satisfies
-\[
-  \bigl|\phi_{\xm\mid\xo}(-uw_m)\bigr| \leq \exp\!\left(-\frac{u^2}{2}\,D_m\right), \qquad D_m := \min_k \sum_{j \in \mathrm{mis}} w_j^2\,\sigma_{kj}^2,
-\]
-where $D_m$ is the variance of the missing part of $w^T x$. When $D_m$ is large, the integrand is nearly zero unless $|u|$ is small, so the inner expectation is close to zero for a wide range of $\gamma$ and hardly varies with it: $\sigma^2_B \approx 0$. More missing features increase $D_m$, so PCPG-MC gains relative to MC as the missing rate grows, while MC behaves the opposite way, since more missing features make $w^T x$ more random and increase $\sigma^2_{\mathrm{MC}}$.
-
-\subsubsection{PCPG Estimator}
-
-\paragraph{Variance.}
-Replacing both expectations with quadrature (Gauss--PG for the outer, Gauss--Hermite for the inner) makes the estimator fully deterministic:
-\[
-  \mathrm{Var}\!\left[\widehat{p}_{\mathrm{PCPG}}\right] = 0.
-\]
-Its output is bounded, since the nodes $\gamma_j$ are fixed positive numbers and the factor $e^{1/(8\gamma_j)}$ is a known finite constant for each of them. The amplification is mild, because the smallest Gauss--PG node is not close to zero ($\gamma_{\min} \approx 0.044$ for 20 nodes, giving $e^{1/(8\gamma_{\min})} \approx 17$).
-
-\paragraph{Bias.}
-Both expectations introduce a quadrature error. Gauss--Hermite with $N$ nodes is exact for polynomials in $u$ up to degree $2N - 1$, and for analytic integrands its error decays super-algebraically in $N$. The Gauss--PG rule with $M$ nodes is exact for polynomials in $\gamma$ up to degree $2M-1$. At $M = 20$ and $N = 60$, both errors are numerically negligible for moderate $|w^T x|$. For large positive $w^T x$ the outer error is amplified by $e^{z/2}$, which the sign flip (Section~\ref{subsec:sign-flip}) removes; with the flip, the outer rules fitted directly to the sigmoid (Appendix~\ref{subsubsec:sigmoid-fit}) are more accurate than Gauss--PG with fewer nodes. The inner Gauss--Hermite error for large $|w^T x|$ is not affected by the flip.
-The infinite inner variance of PCPG-MC does not disappear completely, however; it turns into quadrature error, which grows with the scale of $z = w^T x$. Section~\ref{sec:accuracy-pcpg} discusses when this error and the error of the outer rule become significant.
-
-\subsubsection{Comparison}
-
-Table~\ref{tab:estimator-comparison} summarises the properties of the three
-estimators.
-
-\begin{table}[ht]
-\centering
-\caption{Summary of the three estimators. MC uses $N$ samples, PCPG-MC $M$ outer
-and $L$ inner samples, PCPG $M$ Gauss--PG and $N$ Gauss--Hermite nodes.
-``CF'' means the estimator requires evaluating $\phi_{\xm\mid\xo}$
-rather than drawing samples from $p(\xm \mid \xo)$.}
-\label{tab:estimator-comparison}
-\renewcommand{\arraystretch}{1.4}
-\begin{tabular}{llll}
-\hline
-\textbf{Estimator} & \textbf{Variance} & \textbf{Bias} & \textbf{Needs} \\
-\hline
-MC      & $\sigma^2_{\mathrm{MC}}/N \leq 1/(4N)$ & $0$ & samples \\
-PCPG-MC & $\sigma^2_A/(ML) + \sigma^2_B/M$, with $\sigma^2_A = \infty$ & $0$ & CF \\
-PCPG    & $0$ & quadrature error & CF \\
-\hline
-\end{tabular}
-\end{table}
-
-\paragraph{Bias.}
-MC and PCPG-MC are exactly unbiased. PCPG introduces a quadrature error, which
-decays fast in the number of nodes and is negligible at the parameter choices
-used ($M = 20$ Gauss--PG and $N = 60$ Gauss--Hermite nodes), as long as
-$|w^T x|$ is moderate.
-
-\paragraph{Variance.}
-MC has the variance $\sigma^2_{\mathrm{MC}}/N$, bounded by $1/(4N)$. PCPG-MC is
-unbiased as well, but its inner variance $\sigma^2_A$ is formally infinite because
-of the factor $e^{1/(8\gamma)}$, so rare small values of $\gamma$ produce extreme
-samples, and its outer variance $\sigma^2_B$ only becomes small when many features
-are missing. PCPG has no variance at all: its error is pure bias from the
-quadrature.
-
-\paragraph{When to use which.}
-MC is the simplest choice when sampling from $p(\xm \mid \xo)$ is easy. PCPG-MC
-mainly serves as a reference: it shows that the identities behind PCPG are exact,
-but sampling the two expectations is not competitive. PCPG is the method we
-propose: it only needs the characteristic function, and it is deterministic, so
-repeated evaluations at the same point agree exactly and it can be differentiated,
-for example when training through it.
-
-\subsection{What Determines the Accuracy}
-\label{sec:accuracy-pcpg}
-
-\subsubsection{The scale of $z$}
-
-\subsubsection{The missing ratio}
-
-\subsubsection{The number of features}
-
-
-\section{Training with PCPG}
-\label{sec:disc-training}
-
-\subsection{Why the estimate looks better but accuracy doesn't}
-
-\subsection{Why MC isn't much worse}
-
-
-\subsection{Why isn't standardised data better in accuracy}
-
-\subsection{Takeaway}
 
 \section{Related Work}
 
@@ -185,7 +62,7 @@ time.
 \noindent\textbf{Difference to us:} they keep the feature distribution
 simple (naive Bayes on binary inputs) so the expectation is exact and
 cheap; we keep the feature distribution rich (a GMM or PC on continuous
-inputs) and instead rewrite the sigmoid with two identities. They
+inputs) and instead write the sigmoid as a sum of waves whose expectations the density model computes (CFI). They
 also have to refit the feature distribution whenever the classifier
 changes, while ours is trained once and reused.
 

@@ -268,7 +268,7 @@ distributions to use and how the nodes should be arranged in the graph) and then
 Estimation, where $\theta$ is composed of the weights of the sum nodes and the parameters of the leaf distributions (e.g., means and variances for a Gaussian). 
 This optimization is usually done via Gradient Descent or Expectation-Maximization (EM).
 
-This section will also explain why the expectation of a function that factorises over the features can be pushed down to the leaves, and the RAT-SPN structure used in the experiments. How a PC marginalises missing features is shown in Section~\ref{sec:training-pcpg}.
+This section will also explain why the expectation of a function that factorises over the features can be pushed down to the leaves, and the RAT-SPN structure used in the experiments. How a PC marginalises missing features is shown in Section~\ref{sec:pclr}.
 
 \section{Numerical Integration}
 \label{sec:numerical-integration}
@@ -282,28 +282,6 @@ This section will also explain why the expectation of a function that factorises
 \subsubsection{Gauss--Hermite Quadrature}
 \label{subsec:bg-gauss-hermite}
 
-\subsubsection{Golub--Welsch Algorithm}
-\label{subsec:bg-golub-welsch}
-
-For a distribution without a standard rule, the \emph{Golub--Welsch algorithm}
-\cite{golubwelsch1969} produces the $n$-point Gaussian quadrature nodes and weights
-from its first $2n$ moments $\mu_k := \mathbb{E}[x^k]$, $k = 0, \dots, 2n-1$.
-Form the $n \times n$ Hankel moment matrices
-\[
-  H_{ij} = \mu_{i+j}, \qquad H'_{ij} = \mu_{i+j+1}, \quad i,j = 0,\dots,n-1.
-\]
-Compute the Cholesky factor $H = R^\top R$ and the Jacobi (tridiagonal) matrix
-\[
-  J = R^{-\top} H' R^{-1}, \quad \text{symmetrised as } J \leftarrow \tfrac{1}{2}(J + J^\top).
-\]
-Eigendecompose $J = V \Lambda V^\top$. Then the quadrature nodes and weights are
-\[
-  x_j = \lambda_j, \qquad w_j = \mu_0\, v_{0j}^2, \quad j = 1,\dots,n,
-\]
-where $\lambda_j$ are the eigenvalues and $v_{0j}$ is the first component of
-the $j$-th eigenvector. The resulting rule integrates polynomials exactly up to
-degree $2n-1$. 
-
 \subsection{Effect of Dimensionality}
 \label{subsec:effect-of-dimensionality}
 
@@ -312,6 +290,3 @@ Why quadrature is only good in low dimensions.
 \section{Characteristic Function}
 \label{sec:characteristic-function}
 
-
-\section{Pólya--Gamma Distribution}
-\label{sec:polya-gamma}

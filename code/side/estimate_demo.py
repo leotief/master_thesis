@@ -1,17 +1,16 @@
 # how the expected prediction E[sigmoid(w^T x) | x_obs] of an incomplete point
 # is computed, step by step, on the 2d toy problem of utils/toy.py .
-# the pcpg figure sets the goal and computes it, the mc and the gmm
+# the cfi figure sets the goal and computes it, the mc and the gmm
 # gauss-hermite figures only show how they reach the same goal differently.
-# the four figures of the methods chapter, {bells,waves,cf,summary}.pdf, also
-# written to thesis/figures/pcpg/. these stay on the setup of main.py (same
-# data, gmm, classifier and test point), which the thesis text describes:
+# the two figures of the methods chapter, {waves,cf}.pdf, also written to
+# thesis/figures/cfi/. these are on a 15-feature gmm setup (data, gmm,
+# classifier and one test point with missing features)
 
 # the plotting is in utils/plots.py
 
 import os
 import random
 import sys
-from functools import lru_cache
 
 import numpy as np
 import torch
@@ -19,35 +18,41 @@ from scipy.integrate import quad
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
 
-# experiment_utils.py (for utils/toy.py) is one directory up
+# experiment_utils.py (for utils/toy.py) and pclr.py are one directory up
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from pclr import S_MAX, cfi
 from side.utils.data import classification, hide, loader
 from side.utils.gmm import GMM
-from side.utils.pg_density import pg_pdf
-from side.utils.plots import (plot_gmm_gh_step_by_step, plot_mc_step_by_step, plot_pcpg_step_by_step,
-                              plot_thesis_bells, plot_thesis_cf, plot_thesis_summary, plot_thesis_waves)
-from side.utils.quadrature import pg_quadrature
+from side.utils.plots import (plot_cfi_step_by_step, plot_gmm_gh_step_by_step, plot_mc_step_by_step,
+                              plot_thesis_cf, plot_thesis_waves)
 from side.utils.toy import px as toy_px, toy, w_star, x_point
 
 OUT_DIR = "figures/estimate"
 os.makedirs(OUT_DIR, exist_ok=True)
 # the thesis figures go directly into the latex project
-THESIS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../thesis/figures/pcpg")
+THESIS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../thesis/figures/cfi")
 os.makedirs(THESIS_DIR, exist_ok=True)
 
 # ── config ────────────────────────────────────────────────────────────────────
 
 SEED = 42
 
-# the setup of main.py, for the thesis figures
-N_FEATURES   = 15
-K            = 4
-MISSING_RATE = 0.6
-TEST_IDX     = 5
+# the setup of the thesis figures, and its frequencies: z is wider there, so the
+# step is smaller and more frequencies are needed
+N_FEATURES      = 15
+K               = 4
+MISSING_RATE    = 0.6
+TEST_IDX        = 5
+THESIS_FREQ     = 64
+THESIS_WAVE_KS  = [1, 4, 16, THESIS_FREQ]
 
-# pcpg: outer points (golub-welsch, at most ~19) and inner points (gauss-hermite)
-N_OUTER = 19
-N_INNER = 60
+# cfi: the number of frequencies, the partial sums of waves of steps 2 and 4,
+# the slow and the fast wave of step 3 (indices of the frequencies), and the z
+# of the threshold in step 1
+N_FREQ     = 16
+WAVE_KS    = [1, 2, 4, N_FREQ]
+SHOW_WAVES = [0, 5]
+Z0         = 1.5
 
 # mc: the samples of the steps: the scatter and histogram of step 1, the
 # samples of step 2, the progression of step 3, and the runs of step 4
@@ -61,13 +66,17 @@ N_RUNS      = 500
 # gmm gauss-hermite: points per component, as N_GH_BASELINE in main.py
 N_NODES = 10
 
-Z = np.linspace(-12, 12, 1200)
+# the score axis, a wider one for the sums of waves of step 2 (where they
+# repeat), and the axis of the threshold
+Z      = np.linspace(-12, 12, 1200)
+Z_WIDE = np.linspace(-24, 24, 2400)
+T      = np.linspace(-8, 8, 800)
 
 # ── the distribution of z ─────────────────────────────────────────────────────
 
 # z = w^T x given the observed features: for the gmm a mixture of gaussians,
 # z | k ~ N(m_k, v_k) with weights p(k | x_obs). all three methods only need
-# this (pcpg its cf, mc samples of it, gauss-hermite the components)
+# this (cfi its cf, mc samples of it, gauss-hermite the components)
 class Score:
     def __init__(self, px, w, x_obs):
         with torch.no_grad():
@@ -82,6 +91,11 @@ class Score:
     def phi(self, s):
         s = np.asarray(s, dtype=float)
         return (self.mix * np.exp(1j * np.multiply.outer(s, self.m) - np.multiply.outer(s**2, self.v) / 2)).sum(axis=-1)
+
+    # mean and standard deviation of z, for cfi's step
+    def mean_std(self):
+        mean = self.mix @ self.m
+        return mean, np.sqrt(self.mix @ (self.v + self.m**2) - mean**2)
 
     # exact E[f(z) | k] of every component, by adaptive quadrature
     def component_means(self, f):
@@ -99,80 +113,46 @@ class Score:
         keep, s = self.mix > 0.01, np.sqrt(self.v)
         return np.floor((self.m - 4 * s)[keep].min()), np.ceil((self.m + 4 * s)[keep].max())
 
-# the sign flip: sigmoid(z) = 1 - sigmoid(-z). if z is mostly positive, compute
-# with -z (-w) and mirror at the end, so the bells only have to cover the left
-# side, where the factor e^{z/2} shrinks errors instead of amplifying them
-def flipped_score(px, w, x_obs):
-    with torch.no_grad():
-        flip = bool(px.z_mean(w, x_obs) > 0)
-    return flip, Score(px, -w if flip else w, x_obs)
+# ── cfi ───────────────────────────────────────────────────────────────────────
 
-# ── pcpg ──────────────────────────────────────────────────────────────────────
+# the logistic density, the density of the threshold L with P(L <= z) = sigmoid(z)
+def logistic_density(t):
+    return expit(t) * (1 - expit(t))
 
-@lru_cache(maxsize=None)
-def outer_points(n):
-    return pg_quadrature(n, "golub_welsch")
+# everything the cfi figures need, as a dict. the same formula as pclr.cfi:
+#   E[sigmoid(z)] = 1/2 + h (E[z] / (2 pi) + sum_k Im phi(s_k) / sinh(pi s_k)),  s_k = k h
+# with the step h chosen from the mean and spread of z
+def cfi_pieces(score, n_freq=N_FREQ, wave_ks=WAVE_KS, show_waves=SHOW_WAVES):
+    mean, std = score.mean_std()
+    h = min(np.pi / (abs(mean) + 6 * std + 1), S_MAX / n_freq)
+    s = h * np.arange(1, n_freq + 1)
+    weights = h / np.sinh(np.pi * s)
 
-def inner_points(n):
-    t, omega = np.polynomial.hermite.hermgauss(n)
-    return t, omega
+    # step 1: the density of z - L, p(z) smeared out by the logistic, by a sum
+    # over the grid, and its area right of 0
+    pz, dz = score.components(Z).sum(axis=0), Z[1] - Z[0]
+    p_diff = (pz[None, :] * logistic_density(Z[None, :] - Z[:, None])).sum(axis=1) * dz
+    spread = np.sqrt(std**2 + np.pi**2 / 3)
 
-# the inner sum for every outer point: hs with gauss-hermite, the waves averaged
-# over z through the cf,
-#   e^{1/(8 gamma)} 1/sqrt(pi) sum_i omega_i e^{i u_i / (2 gamma)} phi(-u_i),  u_i = sqrt(2 gamma) t_i
-# (the formula of the thesis, with the observed part of z inside phi)
-def inner_estimate(score, gammas, n_inner):
-    t, omega = inner_points(n_inner)
-    u = np.sqrt(2 * gammas)[:, None] * t                          # (n_outer, n_inner)
-    waves = np.exp(1j * u / (2 * gammas[:, None])) * score.phi(-u)
-    return (np.exp(1 / (8 * gammas)) * (waves @ omega) / np.sqrt(np.pi)).real
+    # steps 2 and 4: the weighted waves h sin(s_k z) / sinh(pi s_k), and the
+    # rest of the sum, the constant 1/2 and the term at frequency 0
+    def waves_on(z):
+        return weights[:, None] * np.sin(np.outer(s, z)), 0.5 + h * z / (2 * np.pi)
+    waves, base = waves_on(Z)
+    waves_wide, base_wide = waves_on(Z_WIDE)
 
-# the partial sums of waves and bells, the followed bell (0 = the one with the
-# largest weight, 1 the next, ...), and the slow and fast wave of step 3. for
-# the test point of the thesis, and for the toy point. there p(z) lies left of
-# 0 and is narrow, so it follows a narrower bell whose centre 1/(2 gamma) is
-# close to p(z), so that bell x p(z) is not just the bell's tail, and its waves
-# only cancel at higher frequencies
-WAVE_KS        = [1, 2, 4, N_INNER // 2]
-BELL_KS        = [1, 2, 4, N_OUTER]
-SHOW_WAVES     = [0, 9]
-TOY_FOLLOWED   = 2
-TOY_SHOW_WAVES = [0, 8]
+    # step 3: the area under every wave x p(z), from the cf
+    im_phi_fn = lambda ss: score.phi(ss).imag
+    im_phi = im_phi_fn(s)
+    base_part = 0.5 + h * mean / (2 * np.pi)
 
-# everything the pcpg figures need, as a dict, for the (flipped) score
-def pcpg_pieces(score, show_waves=SHOW_WAVES, followed=0):
-    gammas, rhos = outer_points(N_OUTER)
-    j = int(np.argsort(-rhos)[followed])
-    g, c = gammas[j], 1 / (2 * gammas[j])
-
-    # the followed outer point. its bell e^{z/2 - gamma z^2/2} is
-    # e^{1/(8 gamma)} e^{-gamma (z - c)^2/2}, and the inner points +-t_i give the
-    # wave e^{1/(8 gamma)} 2 omega_i / sqrt(pi) cos(u_i (z - c)), u_i = sqrt(2 gamma) t_i,
-    # slowest first. the average of cos(u (z - c)) over z is Re(e^{-iuc} phi(u)),
-    # i.e. it comes from the model's cf
-    t, omega = inner_points(N_INNER)
-    pos = t > 0
-    order = np.argsort(t[pos])
-    u_pairs = np.sqrt(2 * g) * t[pos][order]
-    w_waves = np.exp(1 / (8 * g)) * 2 * omega[pos][order] / np.sqrt(np.pi)
-    wave_avg_fn = lambda uu: (np.exp(-1j * uu * c) * score.phi(uu)).real
-    wave_avgs = wave_avg_fn(u_pairs)
-
-    # the weighted bells (one per outer point) and their areas, from the waves
-    bells = 0.5 * rhos[:, None] * np.exp(Z / 2 - np.outer(gammas, Z**2) / 2)
-    inner = inner_estimate(score, gammas, N_INNER)
-
-    gamma_axis = np.linspace(0, 2.5, 600)
-    return dict(z=Z, pz=score.components(Z).sum(axis=0), answer=score.mean(expit), window=score.window(),
-                gamma=g, j=j, gammas=gammas, rhos=rhos, gamma_axis=gamma_axis, pg_density=pg_pdf(gamma_axis),
-                u_all=np.sqrt(2 * g) * t, u_weights=omega / np.sqrt(np.pi),
-                by_weight=np.argsort(-rhos), bells=bells, bell_parts=0.5 * rhos * inner,
-                bell=np.exp(Z / 2 - g * Z**2 / 2), bell_avg=w_waves @ wave_avgs,
-                u_pairs=u_pairs, cosines=np.cos(np.outer(u_pairs, Z - c)),
-                waves=w_waves[:, None] * np.cos(np.outer(u_pairs, Z - c)),
-                wave_parts=w_waves * wave_avgs, wave_avg_fn=wave_avg_fn, wave_avgs=wave_avgs,
-                estimate=0.5 * rhos @ inner,
-                wave_ks=WAVE_KS, bell_ks=BELL_KS, show_waves=show_waves)
+    return dict(z=Z, pz=pz, answer=score.mean(expit), window=score.window(), h=h, s=s,
+                t=T, logistic=logistic_density(T), z0=Z0, p_diff=p_diff, diff_area=p_diff[Z > 0].sum() * dz,
+                diff_window=(np.floor(mean - 4 * spread), np.ceil(mean + 4 * spread)),
+                z_wide=Z_WIDE, pz_wide=score.components(Z_WIDE).sum(axis=0), waves_wide=waves_wide,
+                base_wide=base_wide, waves=waves, base=base, wave_ks=wave_ks,
+                sines=np.sin(np.outer(s, Z)), im_phi=im_phi, im_phi_fn=im_phi_fn, show_waves=show_waves,
+                base_part=base_part, wave_parts=weights * im_phi, estimate=base_part + weights @ im_phi)
 
 # ── monte carlo ───────────────────────────────────────────────────────────────
 
@@ -262,7 +242,7 @@ def gmm_gh_pieces(score):
 # the explanations below the panels. they are typeset with latex, the math
 # without spaces so that wrapping the lines never splits it. <...> are filled
 # in by fill
-PCPG_TEXTS = dict(
+CFI_TEXTS = dict(
     goal_heading=r"Compute $\mathbb{E}_{p(x^m\mid{}x^o)}\big[\sigma(w^\top{}x)\big]$",
     goal_title=r"$\displaystyle=\mathbb{E}_{p(z\mid{}x^o)}\big[\sigma(z)\big]=\int\sigma(z)\,p(z)\,dz$",
     setup=r"A logistic regression $\sigma(w^\top{}x)$ predicts the probability of label 1 (yellow, from "
@@ -278,45 +258,41 @@ PCPG_TEXTS = dict(
          r"density $p(z\mid{}x^o)$, from now on $p(z)$ (grey, area 1), is $p(x_2\mid{}x_1)$ "
          r"stretched<mirrored>, and the prediction is the yellow area under $\sigma(z)\times{}p(z)$: <answer>. "
          r"Mean imputation would take $\sigma$ at one point of the line and get <mean_prediction>. The model can "
-         r"not compute the area directly, so PCPG builds it from pieces it can.<flip>",
-    pg=r"P\'olya-Gamma: $\sigma(z)$ can be written as a weighted sum of bells "
-       r"$e^{z/2-\gamma{}z^2/2}$ of different widths $\gamma$. Indigo: the sums of the bells "
-       r"with the largest weights, closing in on $\sigma(z)$. But where do the bells come from?",
-    pg_origin=r"From the P\'olya-Gamma identity: $\sigma(z)=\tfrac{1}{2}e^{z/2}$ times the "
-              r"average of $e^{-\gamma{}z^2/2}$ over widths $\gamma$ from the P\'olya-Gamma "
-              r"distribution PG(1,0) (grey). PCPG replaces this average by a weighted sum over "
-              r"a few well-chosen widths (lines, height = weight, Gauss quadrature): every line "
-              r"is one bell. The dark indigo one is followed in the next steps.",
-    hs=r"Hubbard-Stratonovich: every bell, here the one of the dark indigo width, can be written "
-       r"as a weighted sum of cosine waves $\cos(u(z-c))$ around its centre $c$, with "
-       r"different frequencies $u$. Summed, slowest first, they pile up where the bell is "
-       r"and cancel everywhere else. But where do the waves come from?",
-    hs_origin=r"From the Hubbard-Stratonovich identity: the bell, up to a constant "
-              r"$e^{-\gamma(z-c)^2/2}$, is the average of the waves $\cos(u(z-c))$ over "
-              r"frequencies $u$ from a Gaussian $\mathcal{N}(0,\gamma)$ (grey). Again PCPG "
-              r"replaces this average by a weighted sum over a few well-chosen frequencies "
-              r"(lines, Gauss-Hermite): every line is one wave.",
+         r"not compute the area directly, so CFI builds it from pieces it can.",
+    threshold=r"The sigmoid is a probability: for a random threshold $L$ from the logistic distribution (grey), "
+              r"$\sigma(z)=P(L\le{}z)$, the yellow area left of $z$, here for $z=<z0>$. So the classifier says "
+              r"label 1 when the score beats a random threshold.",
+    difference=r"With a missing feature the score is random too, and the prediction is the probability that "
+               r"it beats the threshold, $P(z-L>0)$. The difference $z-L$ (indigo) is $p(z)$ (grey) smeared "
+               r"out by $L$, and its area right of 0 (yellow) is again <answer>. What is left is the "
+               r"probability that a random number is positive.",
+    sines=r"That probability comes from sine waves (Gil-Pelaez): a step from 0 to 1 is a sum of waves "
+          r"$\sin(sz)$, and smoothing the step by $L$ gives "
+          r"$\sigma(z)=\tfrac{1}{2}+\int_0^\infty\frac{\sin(sz)}{\sinh(\pi{}s)}ds$. CFI takes <n_freq> "
+          r"frequencies $s_k=kh$, $h=<h>$, and adds the waves with weight $h/\sinh(\pi{}s_k)$ to the "
+          r"line $\tfrac{1}{2}+hz/(2\pi)$ of frequency 0. Coral: the sums of the slowest waves, closing in on "
+          r"$\sigma(z)$. Only within $|z|<\pi/h=<half>$: beyond it the sum climbs on to the next step of a "
+          r"staircase instead of staying at 0 or 1, so $h$ is chosen per point such that $p(z)$ (grey) lies "
+          r"within.",
+    weights=r"Where do the weights come from? The sharp step needs every frequency equally. The threshold "
+            r"multiplies the weight of frequency $s$ by $\frac{\pi{}s}{\sinh(\pi{}s)}$, the characteristic "
+            r"function of $L$, which falls off exponentially: fast waves hardly count, and beyond $s=12$ they "
+            r"are below double precision (lines: the chosen frequencies).",
     wave_area=r"The area under wave $\times\,p(z)$ is the wave's average over the uncertain "
-              r"$z$. A slow wave changes little over $p(z)$ and keeps most of the area, a fast "
+              r"$z$. A slow wave changes little over $p(z)$ and keeps most of its area, a fast "
               r"one goes up and down within $p(z)$ and its area cancels to about 0.",
-    cf=r"This area does not need $p(z)$ itself: for the wave of frequency $u$ it is "
-       r"$\mathrm{Re}[e^{-iuc}\phi(u)]$, with $\phi$ the characteristic function of the "
-       r"density model, which the model can compute. One call to $\phi$ gives the areas of "
-       r"the <n_waves> waves of the followed bell (dots, circled: the slow and the fast wave on the left). This is "
-       r"the only place the model is used.",
-    waves=r"Every panel: the sum of the slowest $k$ waves from step 2 (coral line, scaled) and "
-          r"its area times $p(z)$ (coral, parts below 0 count negative), against the bell "
-          r"(indigo, dashed) and its area. As the sum of waves turns into the bell, its area "
-          r"turns into the bell's area. The fast waves add almost nothing.",
-    bells=r"Every panel: the sum of the bells with the largest weights from step 1 (indigo "
-          r"line, scaled) and its area times $p(z)$ (indigo), against $\sigma(z)$ (yellow, "
-          r"dashed) and the goal area. The area of every bell comes from step 4. With few "
-          r"bells the sum is far from $\sigma(z)$ and the area too small, with <n_bells> bells it "
-          r"is the PCPG estimate <estimate> (exact <answer>).<flip_end>",
+    cf=r"This area does not need $p(z)$ itself: for the wave of frequency $s$ it is $\mathrm{Im}\,\phi(s)$, "
+       r"with $\phi$ the characteristic function of $z$, which the density model can compute; the observed "
+       r"features only add a phase. One batched call gives the areas of all <n_freq> waves (dots, circled: "
+       r"the slow and the fast wave on the left). This is the only place the model is used.",
+    sums=r"Every panel: the line of frequency 0 plus the slowest $k$ waves from step 2 (coral line, scaled) "
+         r"and its area times $p(z)$ (coral, parts below 0 count negative), against $\sigma(z)$ (yellow, "
+         r"dashed) and the goal area. The area of every wave comes from step 3. The fast waves add almost "
+         r"nothing, and with <n_freq> waves it is the CFI estimate <estimate> (exact <answer>).",
 )
 
 MC_TEXTS = dict(
-    draw=r"Monte Carlo reaches the goal of the PCPG step by step, the area under $\sigma(z)\times{}p(z)$, "
+    draw=r"Monte Carlo reaches the goal of the CFI step by step, the area under $\sigma(z)\times{}p(z)$, "
          r"without computing anything about $p(z)$: it tries out random fill-ins of the missing feature. Draw $n$ "
          r"fill-ins $x_{\mathrm{mis}}^{(i)}\sim{}p(x_{\mathrm{mis}}\mid{}x_{\mathrm{obs}})$ from the density "
          r"model: pick a component $k$ with weight $\pi_k=p(k\mid{}x_{\mathrm{obs}})$, then the missing feature "
@@ -351,7 +327,7 @@ MC_TEXTS = dict(
 )
 
 GMM_GH_TEXTS = dict(
-    mix=r"For a Gaussian mixture model the goal of the PCPG step by step, the area under "
+    mix=r"For a Gaussian mixture model the goal of the CFI step by step, the area under "
         r"$\sigma(z)\times{}p(z)$, can be computed directly, with one small quadrature per component, "
         r"because $p(z)$ itself is known. Given the observed features, $z$ is again a mixture: in component $k$ "
         r"it is Gaussian, $z\mid{}k\sim\mathcal{N}(m_k,v_k)$, with weight "
@@ -395,21 +371,18 @@ def fill(texts, values):
 
 # the three step-by-step figures, on the point of utils/toy.py
 def step_by_step():
-    flip, score = flipped_score(toy_px, w_star, x_point)
-    unflipped = Score(toy_px, w_star, x_point)
-    pcpg = pcpg_pieces(score, TOY_SHOW_WAVES, TOY_FOLLOWED)
-    mc, gh = mc_pieces(toy_px, w_star, x_point), gmm_gh_pieces(unflipped)
+    score = Score(toy_px, w_star, x_point)
+    d, mc, gh = cfi_pieces(score), mc_pieces(toy_px, w_star, x_point), gmm_gh_pieces(score)
+    # the same value as the method itself
+    with torch.no_grad():
+        assert abs(d["estimate"] - float(cfi(toy_px, w_star, x_point, N_FREQ))) < 1e-5
 
     mean_prediction = expit(toy["w_star"] @ np.array([toy["x1"], toy["mean_x2"]]))
-    pcpg_values = {"<mean_prediction>": f"{mean_prediction:.4f}",
-                   "<mirrored>": r" by $|w_2|$ and mirrored, as $w_2<0$" if toy["w_star"][1] < 0 else r" by $w_2$",
-                   "<flip>": (r" Here $z$ is mostly positive, so $-w$ is used (the sign flip) and the "
-                              r"result is mirrored at the end.") if flip else "",
-                   "<flip_end>": f" Mirrored back (flip): {1 - pcpg['estimate']:.4f}." if flip else "",
-                   "<estimate>": f"{pcpg['estimate']:.4f}", "<answer>": f"{pcpg['answer']:.4f}",
-                   "<n_waves>": str(len(pcpg["waves"])), "<n_bells>": str(len(pcpg["bells"]))}
-    plot_pcpg_step_by_step({**toy, **pcpg}, fill(PCPG_TEXTS, pcpg_values),
-                           f"{OUT_DIR}/pcpg.pdf")
+    cfi_values = {"<mean_prediction>": f"{mean_prediction:.4f}",
+                  "<mirrored>": r" by $|w_2|$ and mirrored, as $w_2<0$" if toy["w_star"][1] < 0 else r" by $w_2$",
+                  "<z0>": f"{Z0:g}", "<h>": f"{d['h']:.3f}", "<half>": f"{np.pi / d['h']:.1f}",
+                  "<n_freq>": str(N_FREQ), "<estimate>": f"{d['estimate']:.4f}", "<answer>": f"{d['answer']:.4f}"}
+    plot_cfi_step_by_step({**toy, **d}, fill(CFI_TEXTS, cfi_values), f"{OUT_DIR}/cfi.pdf")
 
     mc_values = {"<n_show>": str(N_SHOW), "<n_runs_show>": str(N_RUNS_SHOW), "<n_runs>": str(N_RUNS),
                  "<n_max>": f"{N_MAX:,}".replace(",", r"\,"), "<var>": f"{mc['var']:.4f}",
@@ -419,8 +392,8 @@ def step_by_step():
     gh_values = {"<n>": str(N_NODES), "<n_comp>": str(len(gh["mix"])), "<estimate>": f"{gh['estimate']:.4f}", "<answer>": f"{gh['answer']:.4f}"}
     plot_gmm_gh_step_by_step(gh, fill(GMM_GH_TEXTS, gh_values), f"{OUT_DIR}/gmm_gh.pdf")
 
-# the four figures of the methods chapter, on the setup of main.py, into
-# figures/estimate_overview and straight into the thesis
+# the two figures of the methods chapter, into figures/estimate and straight
+# into the thesis
 def thesis_figures():
     random.seed(SEED)
     np.random.seed(SEED)
@@ -432,12 +405,10 @@ def thesis_figures():
     w = torch.tensor(LogisticRegression().fit(x_train, y_train).coef_[0], dtype=torch.float32)
     x_partial = torch.tensor(hide(x_test[TEST_IDX], MISSING_RATE, np.random.RandomState(SEED)))
 
-    d = pcpg_pieces(flipped_score(px, w, x_partial)[1])
+    d = cfi_pieces(Score(px, w, x_partial), THESIS_FREQ, THESIS_WAVE_KS)
     for out_dir in (OUT_DIR, THESIS_DIR):
-        plot_thesis_bells(d, f"{out_dir}/bells.pdf")
         plot_thesis_waves(d, f"{out_dir}/waves.pdf")
         plot_thesis_cf(d, f"{out_dir}/cf.pdf")
-        plot_thesis_summary(d, f"{out_dir}/summary.pdf")
 
 if __name__ == "__main__":
     step_by_step()

@@ -1,14 +1,14 @@
 \section{Training with Missing Features}
 \label{sec:training}
 
-In this section we train a logistic regression on incomplete data with PCPG
-inside the loss (Section~\ref{sec:training-pcpg}) and compare it with the usual
+In this section we train a logistic regression on incomplete data with PGHS
+inside the loss (Section~\ref{sec:training-pghs}) and compare it with the usual
 ways of training on incomplete data.
 
 \subsection{Monte Carlo Inside the Loss}
 \label{subsec:training-mc}
 
-The obvious alternative to PCPG is to estimate the expectation in the loss by sampling,
+The obvious alternative to PGHS is to estimate the expectation in the loss by sampling,
 \[
   \hat p = \frac{1}{S} \sum_{s=1}^{S} \sigma\!\left(w^T x^{(s)}\right),
   \qquad x^{m,(s)} \sim p(\xm \mid \xo),
@@ -51,13 +51,13 @@ training points they see and in the prediction their loss is built from
   \item \textbf{Mean imputation:} an ordinary logistic regression on the training
         points with every missing feature replaced by the mean of its observed
         values.
-  \item \textbf{MC, PCPG, Exact:} the marginal likelihood \eqref{eq:marginal-likelihood}
+  \item \textbf{MC, PGHS, Exact:} the marginal likelihood \eqref{eq:marginal-likelihood}
         on the incomplete training points, with the expectation estimated by Monte
-        Carlo with $S$ samples, by deterministic PCPG with $M \times N$ nodes, or
+        Carlo with $S$ samples, by deterministic PGHS with $M \times N$ nodes, or
         computed exactly. Exact uses the direct route for Gaussian mixtures
         (Section~\ref{subsec:gmm-direct}) with Gauss--Hermite quadrature for every
         component. It is only available for the GMM, and serves as the target of
-        MC and PCPG.
+        MC and PGHS.
 \end{itemize}
 
 \begin{table}[htb]
@@ -71,7 +71,7 @@ training points they see and in the prediction their loss is built from
 Complete data   & complete $x$                 & $\sigma(w^T x)$ \\
 Mean imputation & $\xo$, $\xm$ filled by means & $\sigma(w^T x)$ \\
 MC              & $\xo$                        & $\frac{1}{S}\sum_s \sigma(w^T x^{(s)})$ \\
-PCPG            & $\xo$                        & PCPG, $M \times N$ nodes \\
+PGHS            & $\xo$                        & PGHS, $M \times N$ nodes \\
 Exact           & $\xo$                        & $\sum_k \tilde\pi_k(\xo) \E_{\mathcal{N}(m_k, v_k)}[\sigma(z)]$ \\
 \hline
 \end{tabular}
@@ -81,7 +81,7 @@ Exact           & $\xo$                        & $\sum_k \tilde\pi_k(\xo) \E_{\m
 \label{tab:training-models}
 \end{table}
 
-MC, PCPG and Exact are trained in the same way, with Adam on minibatches,
+MC, PGHS and Exact are trained in the same way, with Adam on minibatches,
 starting from $w = 0$. Complete data and mean imputation are ordinary logistic
 regressions and are fit with scikit-learn, which finds their optimum exactly.
 
@@ -117,7 +117,7 @@ features, almost all missing features would be irrelevant for the label. The
 number of features is $d \in \{5, 10, 20, 50, 100\}$. In every training and test
 point, $\lfloor \rho d \rfloor$ features are hidden at random, with
 $\rho \in \{0.3, 0.5, 0.8\}$. The density is a GMM with $K = 4$ diagonal
-components, fit on the incomplete training points. PCPG uses $M = 10$
+components, fit on the incomplete training points. PGHS uses $M = 10$
 Golub--Welsch nodes and $N = 32$ Gauss--Hermite nodes, and MC gets the same
 budget of $S = 320$ samples per point and step. Exact uses 64 Gauss--Hermite
 nodes per component. Adam runs for 100 epochs with minibatches of 1{,}024 points
@@ -138,17 +138,17 @@ $0.9$ percentage points, so smaller differences in accuracy are not meaningful.
     for 30\%, 50\% and 80\% missing features. $J$ is the exact marginal likelihood
     \eqref{eq:marginal-likelihood} on the training points, and the target is the
     classifier trained with the exact expectation (yellow band). MC uses
-    $S = 320$ samples, PCPG $10 \times 32$ nodes.}
+    $S = 320$ samples, PGHS $10 \times 32$ nodes.}
   \label{fig:training-gap}
 \end{figure}
 
 \paragraph{The marginal likelihood is reached.}
 Figure~\ref{fig:training-gap} shows how well every model minimises the marginal
-likelihood. MC, PCPG and Exact mostly end between $5 \cdot 10^{-6}$ and
+likelihood. MC, PGHS and Exact mostly end between $5 \cdot 10^{-6}$ and
 $10^{-4}$ above the optimum, complete data and mean imputation mostly between
 $10^{-3}$ and $2 \cdot 10^{-2}$. The baselines minimise a different objective, so
 their gap does not shrink with more training: it is the price of ignoring the
-uncertainty of the missing features. PCPG follows Exact closely in almost all
+uncertainty of the missing features. PGHS follows Exact closely in almost all
 settings, i.e.\ its quadrature error does not affect the training. MC lies
 slightly above it, by up to $7 \cdot 10^{-5}$ for 10 and 20 features. With
 $S = 320$ samples its bias $\mathrm{Var}[\sigma(z)] / (2 S p^2)$ is small, but
@@ -159,9 +159,9 @@ Adam with a fixed learning rate does not settle exactly at the optimum. At
 stops $7.8 \cdot 10^{-4}$ above the optimum at 30\% missing, more than the
 complete-data classifier ($1.1 \cdot 10^{-4}$). At 100 features there are many
 weights, and all three stop at about $6 \cdot 10^{-4}$ for 30\% and 50\% missing.
-In one setting PCPG falls behind Exact: with 5 features and 30\% missing only a
+In one setting PGHS falls behind Exact: with 5 features and 30\% missing only a
 single feature is hidden, so $z \mid \xo$ is concentrated and the characteristic
-function hardly decays, which is the hardest case for the fixed nodes of PCPG.
+function hardly decays, which is the hardest case for the fixed nodes of PGHS.
 Its gap of $2.2 \cdot 10^{-3}$ is three times that of Exact.
 
 \begin{figure}[htb]
@@ -217,7 +217,7 @@ features. At 5 features, mean imputation is ahead by 1.1 percentage points.
 
 \paragraph{Adam against an exact solver.}
 To check that the training by Adam does not distort the comparison, we also
-fit complete data and mean imputation with Adam, in the same way as MC, PCPG and
+fit complete data and mean imputation with Adam, in the same way as MC, PGHS and
 Exact (Figure~\ref{fig:training-sklearn}). Both fits give practically the same
 accuracies, and the same objective gap except at 5 features, where Adam does not
 reach the optimum of the logistic regression. There its gap differs from that of
@@ -227,8 +227,8 @@ minimise. This is the same limitation of the optimiser as for Exact above, and
 it does not change the comparison between the models.
 
 \paragraph{Summary.}
-PCPG makes the marginal likelihood usable as a training loss: the training with
-PCPG reaches the same classifier as training with the exact expectation, without
+PGHS makes the marginal likelihood usable as a training loss: the training with
+PGHS reaches the same classifier as training with the exact expectation, without
 sampling and without the systematic bias of Monte Carlo. Training on the
 marginal likelihood makes the classifier better suited to incomplete test
 points than training on complete data, with gains of up to two percentage points

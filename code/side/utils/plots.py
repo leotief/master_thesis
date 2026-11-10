@@ -2,8 +2,8 @@
 #
 # the plot functions only save to figures/ and close the figure, they never
 # call plt.show() or print, so the calling script decides what to output.
-# plot_data, plot_gmm_results and plot_classifier_results only make sense for
-# 2d data (e.g. moons), the plots after them are for the side demos
+# first the step-by-step figures of the side demos and the method figures of the
+# thesis, then the figures of the experiments estimate.py and train.py
 
 import functools
 import os
@@ -12,7 +12,6 @@ import matplotlib
 import matplotlib.lines
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 
 os.makedirs('figures', exist_ok=True)
 
@@ -39,22 +38,6 @@ STYLE = {
                                                 "#56B4E9"]),
 }
 
-# colours (okabe-ito, colour blind safe). the roles are the same in every
-# figure: ACCENT the one highlighted piece or the method we use, GOAL the target
-# area, SLOW and FAST a contrasting pair, TARGET the exact curve (a thick light
-# band under the estimates), DENSITY the fill of a density in the background.
-# families of curves use sequential maps (Purples for bells, Blues for waves
-# and sample sizes), darker = more pieces
-ACCENT = "#D55E00"
-GOAL = "#009E73"
-SLOW, FAST = "#0072B2", "#E69F00"
-TARGET = "0.82"
-DENSITY = "0.88"
-
-# n shades of blue, light to dark, as an (n, 4) rgba array
-def blues(n):
-    return plt.cm.Blues(np.linspace(0.4, 0.95, n))
-
 # the experiment figures go to figures/<folder>/ and directly into the thesis
 THESIS_FIGURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../thesis/figures")
 
@@ -72,343 +55,28 @@ def styled(fn):
             return fn(*args, **kwargs)
     return wrapper
 
-# the exact curve: a thick light band, the estimates are drawn thin on top
-def plot_target(ax, x, y, label=None):
-    ax.plot(x, y, color=TARGET, lw=4, solid_capstyle="butt", zorder=0, label=label)
+# ── cfi step by step (estimate_demo.py) ───────────────────────────────────────
 
-# a thin zero line
-def zero_line(ax):
-    ax.axhline(0, color="0.6", lw=0.5, zorder=0)
-
-# ── 2d checks ─────────────────────────────────────────────────────────────────
-
-# scatter of the first two features, coloured by label if given
-@styled
-def plot_data(X, y=None, title=None, xlabel='Feature 1', ylabel='Feature 2'):
-    fig, ax = plt.subplots(figsize=(3.6, 3.2))
-    if y is not None:
-        scatter = ax.scatter(X[:, 0], X[:, 1], c=y, cmap='viridis', alpha=0.7, s=6, lw=0)
-        fig.colorbar(scatter, ax=ax, label='label')
-    else:
-        ax.scatter(X[:, 0], X[:, 1], color=SLOW, alpha=0.7, s=6, lw=0)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title)
-    ax.set_aspect('equal', 'datalim')
-    filename = title.replace(' ', '_') + '.pdf' if title else 'plot_data.pdf'
-    fig.savefig(f'figures/{filename}')
-    plt.close(fig)
-
-# visual check of the gmm fit (2d): left the data coloured by its most likely
-# component, right samples drawn from the gmm. if the fit is good both look alike
-@styled
-def plot_gmm_results(gmm_model, X, title=None, num_samples=1000):
-    with torch.no_grad():
-        # log p(x | k) + log pi_k for every point and component
-        X_tensor = torch.tensor(X, dtype=torch.float32).to(gmm_model.device)
-        variances = torch.exp(gmm_model.log_vars) + 1e-6
-        log_probs = torch.distributions.Normal(gmm_model.means, variances.sqrt()).log_prob(X_tensor.unsqueeze(1)).sum(dim=-1)
-        weighted_log_probs = log_probs + torch.log_softmax(gmm_model.pi, dim=-1)
-        # most likely component for every point
-        clusters = torch.argmax(weighted_log_probs, dim=1).cpu().numpy()
-
-    samples = gmm_model.sample(num_samples).cpu().numpy()
-
-    fig, axes = plt.subplots(1, 2, figsize=(THESIS_WIDTH, 2.7), sharex=True, sharey=True)
-    axes[0].scatter(X[:, 0], X[:, 1], c=clusters, cmap='tab10', alpha=0.6, s=5, lw=0)
-    axes[0].set_title("data, coloured by most likely component")
-    axes[1].scatter(samples[:, 0], samples[:, 1], color=ACCENT, alpha=0.5, s=5, lw=0)
-    axes[1].set_title("samples from the GMM")
-    for ax in axes:
-        ax.set_xlabel('Feature 1')
-        ax.set_aspect('equal', 'datalim')
-    axes[0].set_ylabel('Feature 2')
-    if title:
-        fig.suptitle(title)
-
-    filename = title.replace(' ', '_') + '_combined.pdf' if title else 'gmm_combined.pdf'
-    fig.savefig(f'figures/{filename}')
-    plt.close(fig)
-
-# visual check of a 2d classifier: left the predicted probability over the plane
-# with the data on top, right the decision boundary and which points are wrong
-@styled
-def plot_classifier_results(clf, X, y, title="Logistic Regression"):
-    x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
-    y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
-    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 200),
-                         np.linspace(y_min, y_max, 200))
-
-    # evaluate the classifier on a grid for the contour plot
-    grid_points = np.c_[xx.ravel(), yy.ravel()]
-    probs = clf.predict_proba(grid_points)[:, 1].reshape(xx.shape)
-
-    y_pred = clf.predict(X)
-    correct = (y_pred == y)
-
-    fig, axes = plt.subplots(1, 2, figsize=(THESIS_WIDTH, 2.7))
-
-    contour = axes[0].contourf(xx, yy, probs, cmap='RdBu_r', levels=20, alpha=0.8)
-    axes[0].scatter(X[:, 0], X[:, 1], c=y, cmap='RdBu_r', edgecolor='0.2', lw=0.3, s=6)
-    axes[0].set_title("predicted probability")
-    fig.colorbar(contour, ax=axes[0], label=r'$p(y = 1 \mid x)$')
-
-    axes[1].contour(xx, yy, probs, levels=[0.5], colors='0.1', linewidths=1)
-    axes[1].scatter(X[correct, 0], X[correct, 1], color=GOAL, label='correct', alpha=0.6, s=5, lw=0)
-    axes[1].scatter(X[~correct, 0], X[~correct, 1], color=ACCENT, label='wrong', marker='x', s=12, lw=0.8)
-    axes[1].set_title("decision boundary")
-    axes[1].legend(loc="upper right")
-
-    for ax in axes:
-        ax.set_xlabel('Feature 1')
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
-        ax.set_aspect('equal')
-    axes[0].set_ylabel('Feature 2')
-    fig.suptitle(title)
-
-    filename = f"{title.lower().replace(' ', '_')}_results.pdf"
-    fig.savefig(f'figures/{filename}')
-    plt.close(fig)
-
-# ── quadrature comparison plots (pg_identity_demo.py, hs_identity_demo.py) ────
-
-# left: approximations against the exact function, right: absolute error on a
-# log scale. curves is a list of (estimate, label, colour, linestyle, alpha),
-# every estimate evaluated on x. truth is the exact function on x
-@styled
-def plot_function_and_error(x, truth, curves, out_path, title=None,
-                            truth_label=r"exact $\sigma(x)$", ylim=(-0.15, 1.15), xlabel="$x$"):
-    fig, (ax_fn, ax_err) = plt.subplots(1, 2, figsize=(THESIS_WIDTH, 2.4))
-    plot_target(ax_fn, x, truth, truth_label)
-    for est, label, color, ls, alpha in curves:
-        ax_fn.plot(x, est, color=color, ls=ls, alpha=alpha, label=label)
-        # floor at 1e-17 so errors that are exactly 0 don't break the log axis
-        ax_err.plot(x, np.maximum(np.abs(est - truth), 1e-17), color=color, ls=ls, alpha=alpha, lw=0.9)
-
-    ax_fn.set_xlabel(xlabel)
-    ax_fn.set_ylim(*ylim)
-    ax_fn.set_title("approximation")
-    # below both panels, so it covers no curve
-    fig.legend(*ax_fn.get_legend_handles_labels(), loc="upper center", bbox_to_anchor=(0.5, -0.04),
-               ncol=3)
-
-    ax_err.set_xlabel(xlabel)
-    ax_err.set_ylabel(r"$|\mathrm{error}|$")
-    ax_err.set_yscale("log")
-    ax_err.set_title("absolute error")
-    if title:
-        fig.suptitle(title, y=1.04)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# error against number of nodes, log-log, one panel per entry of panels, all
-# with the same y axis. panels is a list of (title, lines), lines a list of
-# (ns, errors, label, colour, linestyle). an entry with a single n (a method
-# that picks its own number of nodes) is drawn as a star instead of a line.
-# xticks labels these node counts instead of only the powers of 10
-@styled
-def plot_error_vs_nodes(panels, out_path, suptitle=None, xticks=None,
-                        xlabel="number of nodes", ylabel="error"):
-    fig, axes = plt.subplots(1, len(panels), figsize=(max(0.75 * THESIS_WIDTH, 2.9 * len(panels)), 2.5),
-                             sharey=True, squeeze=False)
-    for ax, (title, lines) in zip(axes[0], panels):
-        for ns, errs, label, color, ls in lines:
-            if len(ns) == 1:
-                ax.plot(ns, errs, "*", color=color, ms=7, label=label)
-            else:
-                ax.plot(ns, errs, color=color, ls=ls, marker="o", ms=2.5, label=label)
-
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        if xticks is not None:
-            ax.set_xticks(xticks, labels=[str(n) for n in xticks])
-            ax.minorticks_off()
-        ax.set_xlabel(xlabel)
-        ax.set_title(title)
-        ax.legend(fontsize=6.5)
-    axes[0, 0].set_ylabel(ylabel)
-    if suptitle:
-        fig.suptitle(suptitle, y=1.05)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# ── pg identity plots (pg_identity_demo.py) ───────────────────────────────────
-
-# the pg identity step by step, one panel per step. step 1 is drawn twice:
-# above on a linear gamma axis with the density p(gamma), below on a log axis
-# with the density of log(gamma), p(gamma) * gamma, so small points are visible
-# too. nodes and weights are the picked points, z is the z axis, bells the
-# weighted bells w_j e^{-gamma_j z^2/2} (one row per node), exact_avg the exact
-# average sech(z/2), estimate the resulting sigmoid estimate
-@styled
-def plot_pg_identity_steps(gamma_lin, density_lin, gamma_log, density_log, nodes, weights,
-                           z, bells, exact_avg, estimate, out_path, title=None):
-    colors = plt.cm.Purples(np.linspace(0.4, 0.95, len(nodes)))
-    fig = plt.figure(figsize=(2 * THESIS_WIDTH, 2.8))
-    grid = fig.add_gridspec(2, 4, hspace=0.9, wspace=0.3)
-    axes = [None] + [fig.add_subplot(grid[:, col]) for col in range(1, 4)]
-
-    for row, (gamma, density, log) in enumerate(((gamma_lin, density_lin, False),
-                                                 (gamma_log, density_log, True))):
-        ax = fig.add_subplot(grid[row, 0])
-        shown = (nodes >= gamma[0]) & (nodes <= gamma[-1])
-        w_max = weights[shown].max()
-        ax.fill_between(gamma, density / density.max() * w_max, color=DENSITY, lw=0, label=r"$\mathrm{PG}(1,0)$")
-        ax.vlines(nodes[shown], 0, weights[shown], colors=colors[shown], lw=1.1)
-        ax.plot(nodes[shown], weights[shown], "o", color=plt.cm.Purples(0.8), ms=2)
-        if log:
-            ax.set_xscale("log")
-        ax.set_xlim(gamma[0], gamma[-1])
-        ax.set_ylim(0, 1.15 * w_max)
-        ax.set_xlabel(r"$\gamma$ (log scale)" if log else r"$\gamma$")
-        ax.set_ylabel("weight $w_j$")
-        if not log:
-            ax.set_title(r"1. pick points $\gamma_j$ with weights $w_j$")
-            ax.legend(loc="upper right")
-
-    ax = axes[1]
-    for color, bell in zip(colors, bells):
-        ax.plot(z, bell, color=color, lw=0.9)
-    ax.set_xlabel("$z$")
-    ax.set_title(r"2. every point gives a bell $w_j\, e^{-\gamma_j z^2/2}$")
-
-    ax = axes[2]
-    plot_target(ax, z, exact_avg, r"exact $\mathbb{E}[e^{-\gamma z^2/2}]$")
-    ax.plot(z, bells.sum(axis=0), color=ACCENT, ls="--", label="sum of the bells")
-    ax.set_ylim(-0.05, 1.4)
-    ax.set_xlabel("$z$")
-    ax.set_title("3. add the bells up")
-    ax.legend(loc="upper right")
-
-    ax = axes[3]
-    plot_target(ax, z, 1 / (1 + np.exp(-z)), r"exact $\sigma(z)$")
-    ax.plot(z, estimate, color=ACCENT, ls="--", label=r"$\frac{1}{2} e^{z/2}\,\cdot$ sum")
-    ax.set_ylim(-0.05, 1.15)
-    ax.set_xlabel("$z$")
-    ax.set_title(r"4. multiply by $\frac{1}{2} e^{z/2}$")
-    ax.legend(loc="upper left")
-
-    if title:
-        fig.suptitle(title, y=1.04)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# the points every method picks, one panel per method: every point as a
-# vertical line whose height is its weight, on top of the density (grey,
-# scaled to the height of the largest weight, only its shape matters).
-# rows is a list of (panels, row_label), one figure row each, panels a list of
-# (label, nodes, weights) or None for an empty cell. gamma is the x axis, on a
-# log scale unless log is False
-@styled
-def plot_nodes_on_density(gamma, density, rows, out_path, title=None, log=True,
-                          xlabel=r"$\gamma$ (log scale)"):
-    n_cols = max(len(panels) for panels, _ in rows)
-    fig, axes = plt.subplots(len(rows), n_cols, figsize=(2.1 * n_cols, 1.45 * len(rows)),
-                             squeeze=False, gridspec_kw=dict(hspace=0.7, wspace=0.15))
-    for row_axes, (panels, row_label) in zip(axes, rows):
-        for ax, panel in zip(row_axes, panels + [None] * (n_cols - len(panels))):
-            if panel is None:
-                ax.axis("off")
-                continue
-            label, nodes, weights = panel
-            ax.fill_between(gamma, density / density.max() * weights.max(), color=DENSITY, lw=0)
-            ax.vlines(nodes, 0, weights, color=ACCENT, lw=1)
-            ax.plot(nodes, weights, "o", color=ACCENT, ms=2)
-            if log:
-                ax.set_xscale("log")
-            ax.set_xlim(gamma[0], gamma[-1])
-            ax.set_ylim(0, 1.1 * weights.max())
-            ax.set_yticks([])
-            ax.spines["left"].set_visible(False)
-            ax.set_title(f"{label} ({len(nodes)} points)")
-        # row label left of the first column, also when that cell is empty
-        row_axes[0].text(-0.06, 0.5, row_label, transform=row_axes[0].transAxes,
-                         rotation=90, ha="right", va="center")
-    for ax in axes[-1]:
-        ax.set_xlabel(xlabel)
-    if title:
-        fig.suptitle(title, y=1.1)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# ── hs identity plots (hs_identity_demo.py) ───────────────────────────────────
-
-# the hs identity step by step, one panel per step. u and density are the u
-# axis and the N(0, 1) density on it, nodes and weights the picked points. t is
-# the t axis, waves the weighted waves w_j cos(t u_j) (one row per node), exact
-# the exact average e^{-t^2/2}
-@styled
-def plot_hs_identity_steps(u, density, nodes, weights, t, waves, exact, out_path, title=None):
-    colors = plt.cm.Blues(np.linspace(0.4, 0.95, len(nodes)))
-    estimate = waves.sum(axis=0)
-    fig, axes = plt.subplots(1, 4, figsize=(2 * THESIS_WIDTH, 2.3), gridspec_kw=dict(wspace=0.3))
-
-    ax = axes[0]
-    ax.fill_between(u, density / density.max() * weights.max(), color=DENSITY, lw=0,
-                    label=r"$\mathcal{N}(0,1)$ density")
-    ax.vlines(nodes, 0, weights, colors=colors, lw=1.1)
-    ax.plot(nodes, weights, "o", color=plt.cm.Blues(0.8), ms=2)
-    ax.set_xlim(u[0], u[-1])
-    ax.set_ylim(0, 1.3 * weights.max())
-    ax.set_xlabel("$u$")
-    ax.set_ylabel("weight $w_j$")
-    ax.set_title("1. pick points $u_j$ with weights $w_j$")
-    ax.legend(loc="upper right")
-
-    ax = axes[1]
-    for color, wave in zip(colors, waves):
-        ax.plot(t, wave, color=color, lw=0.8)
-    zero_line(ax)
-    ax.set_xlabel("$t$")
-    ax.set_title(r"2. every point gives a wave $w_j \cos(t\, u_j)$")
-
-    ax = axes[2]
-    plot_target(ax, t, exact, r"exact $e^{-t^2/2}$")
-    ax.plot(t, estimate, color=ACCENT, ls="--", label="sum of the waves")
-    zero_line(ax)
-    ax.set_ylim(-0.3, 1.25)
-    ax.set_xlabel("$t$")
-    ax.set_title("3. add the waves up")
-    ax.legend(loc="upper right")
-
-    ax = axes[3]
-    ax.plot(t, np.maximum(np.abs(estimate - exact), 1e-17), color=ACCENT)
-    ax.set_yscale("log")
-    ax.set_xlabel("$t$")
-    ax.set_title("4. error: no cancelling at large $t$")
-
-    if title:
-        fig.suptitle(title, y=1.06)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-
-# ── pcpg step by step (estimate_overview_demo.py) ─────────────────────────────
-
-# what pcpg does, one row per step, with explanations below (texts, a dict):
+# what cfi does, one row per step, with explanations below (texts, a dict):
 #   setup    the classifier sigmoid(w^T x), the density model p(x), and a point
 #            with a missing feature: a line of possible points
 #   goal     its prediction, the average of sigmoid along the line: the area
 #            under sigmoid(z) x p(z)
-#   step 1   pg: sums of bells adding up to sigmoid(z), and where the bells
-#            come from (the chosen widths)
-#   step 2   hs: sums of waves adding up to a bell, and where the waves come
-#            from (the chosen frequencies)
+#   step 1   sigmoid(z) is the probability that a logistic threshold L lies
+#            below z, so the goal is the probability that z - L is positive
+#   step 2   sigmoid(z) as a sum of sine waves, and where their weights come
+#            from (the step, smoothed by L)
 #   step 3   the area under a wave, and for every wave from the model's cf
-#   step 4   partial sums of waves and their areas x p(z) building up a bell
-#   step 5   partial sums of bells and their areas x p(z) building up the goal
-# every area is at true scale. d is a dict, see step_by_step in
-# estimate_overview_demo.py
+#   step 4   partial sums of waves and their areas x p(z) building up the goal
+# every area is at true scale. d is a dict, see step_by_step in estimate_demo.py
 #
 # the step-by-step figures (this one, the gmm and the mc one) have a pastel look
 # (catppuccin) with three colour families, each with one role in every panel:
-# gold for sigmoid(z) and the goal area, indigo for the pieces that add up to
-# the goal (the bells, the components; the followed one dark), coral for
-# everything gauss-hermite (the waves, the frequencies, the points; only the
-# fast wave of step 3 is a deep wine red, to tell it from the slow one). p(z)
-# and the densities the points come from are grey. a target curve is a dashed
+# gold for sigmoid(z) and the goal area, indigo for the densities built from
+# p(z) (z - L, the mixture components; the followed one dark), coral for the
+# pieces that are summed (the waves and their frequencies, the gauss-hermite
+# points; only the fast wave of step 3 is a deep wine red, to tell it from the
+# slow one). p(z) and the densities the points come from are grey. a target curve is a dashed
 # line in its colour over a pale area (a light band where there are only
 # lines), the sum closing in on it a solid line. every step has a badge, its
 # heading, its panels and the explanation
@@ -417,8 +85,8 @@ def plot_hs_identity_steps(u, density, nodes, weights, t, waves, exact, out_path
 # deep (latte) version, lines and fills are mixed from them
 _CAT = dict(text="#4c4f69", subtext="#6c6f85", overlay="#9ca0b0", surface="#ccd0da",
             grey="#dce0e8")
-_PASTEL = dict(gold="#ffe794", indigo="#b4befe", coral="#f5a097", wine="#c97b95")
-_DEEP = dict(gold="#d49a00", indigo="#3b4cca", coral="#e64553", wine="#7a1f3d")
+_PASTEL = dict(gold="#ffe794", indigo="#b4befe", coral="#f5a097", wine="#c97b95", green="#a6e3a1")
+_DEEP = dict(gold="#d49a00", indigo="#3b4cca", coral="#e64553", wine="#7a1f3d", green="#40a02b")
 
 # a tone of a colour family, from 0 (white) over 1 (pastel) to 2 (deep)
 def _tone(family, t):
@@ -434,7 +102,7 @@ def _tones(family, n, lo=0.45, hi=2.0):
 _LINE = {f: _tone(f, 1.55) for f in _PASTEL}
 _FILL = {f: _tone(f, 1.0) for f in _PASTEL}
 
-# the colour of a target: sigmoid(z) butter, the bell mist blue. the same
+# the colour of a target: sigmoid(z) butter, a component mist blue. the same
 # colour for its band (only lines) and for its area under a target x p(z),
 # in every step, so a target always looks the same
 _BAND = dict(gold="#ffe794", indigo="#d6dcff")
@@ -449,10 +117,6 @@ _BIG_STYLE = {**STYLE, "font.size": 14, "axes.labelsize": 13, "legend.fontsize":
               "axes.labelcolor": _CAT["text"], "xtick.color": _CAT["text"],
               "ytick.color": _CAT["text"], "text.color": _CAT["text"]}
 
-def plot_pcpg_step_by_step(d, texts, out_path, title=None):
-    with plt.rc_context(_BIG_STYLE):
-        _plot_pcpg_step_by_step(d, texts, out_path, title)
-
 # bold with usetex, where fontweight has no effect
 def _bold(text):
     return r"{\bfseries\boldmath " + text + "}"
@@ -462,12 +126,11 @@ def _bold(text):
 def _dashed(ax, x, y, family, label=None):
     ax.plot(x, y, color=_tone(family, 1.25), lw=2.4, ls=(0, (5, 2.5)), zorder=4, label=label)
 
-# the partial sums of bells and waves among only lines (steps 1 and 2 of pcpg,
-# and the bells and waves figures of the thesis): the target a pale wide band
-# (butter for sigmoid(z), mist blue for the bell), the sums lines from light to
-# near-black that also get heavier, so the build-up reads as one progression
-_SIGMA_BAND, _BELL_BAND = _BAND["gold"], _BAND["indigo"]
-_BELL_LINES = ["#aab4fb", "#6f7ef0", "#3343c0", "#161d5e"]
+# the partial sums of waves among only lines (step 2 of cfi, and the waves
+# figure of the thesis): the target a pale wide butter band for sigmoid(z), the
+# sums lines from light to near-black that also get heavier, so the build-up
+# reads as one progression
+_SIGMA_BAND = _BAND["gold"]
 _WAVE_LINES = ["#f7b3a8", "#ef7d70", "#d93a4a", "#5c0f1a"]
 _SUM_WIDTHS = (1.4, 1.9, 2.5, 3.2)
 
@@ -544,11 +207,15 @@ def _headings(fig, rows, title=None):
         fig.text(centre, top + 2.3 / height, _bold(title), fontsize=28, ha="center", va="bottom",
                  color=_CAT["text"])
 
+# "k pieces", singular for one
+def _count(k, n, unit):
+    return f"{k} {unit}{'s' if k > 1 else ''}"
+
 # the panels of a progression in the step-by-step figures: 1, 2 and all pieces
 def _first_two_and_all(seq):
     return [seq[0], seq[1], seq[-1]]
 
-# the goal panel of the pcpg figure: the area under sigmoid(z) x p(z)
+# the goal panel of the cfi figure: the area under sigmoid(z) x p(z)
 def _goal_panel(ax, z, pz, sigma, answer, title=r"The area under $\sigma(z) \times p(z)$", fontsize=15):
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$: area 1")
     ax.plot(z, sigma * pz.max(), color=_LINE["gold"], lw=1.6, ls=(0, (4, 2)), label=r"$\sigma(z)$ (scaled)")
@@ -558,46 +225,27 @@ def _goal_panel(ax, z, pz, sigma, answer, title=r"The area under $\sigma(z) \tim
     ax.set_xlim(z[0], z[-1])
     _finish(ax, title, room=0.6, fontsize=fontsize)
 
-def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
-    z, pz, window = d["z"], d["pz"], d["window"]
+def plot_cfi_step_by_step(d, texts, out_path, title=None):
+    with plt.rc_context(_BIG_STYLE):
+        _plot_cfi_step_by_step(d, texts, out_path, title)
+
+def _plot_cfi_step_by_step(d, texts, out_path, title=None):
+    z, pz, window, s = d["z"], d["pz"], d["window"], d["s"]
     sigma = 1 / (1 + np.exp(-z))
-    by_weight = d["by_weight"]
-    n_waves, n_bells = len(d["waves"]), len(d["bells"])
-    plural = lambda k, unit, n: f"{k} {unit}{'s' if k > 1 else ''}"
+    n = len(s)
+    s_axis = np.linspace(1e-9, 1.05 * s[-1], 600)
 
     # 6 columns: the setup and the goal over the middle 4, the other rows two
     # panels of 3 or three panels of 2
-    fig = plt.figure(figsize=(16, 61))
-    grid = fig.add_gridspec(7, 6, height_ratios=[1.2, 1, 1, 1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
+    fig = plt.figure(figsize=(16, 52))
+    grid = fig.add_gridspec(6, 6, height_ratios=[1.2, 1, 1, 1, 1, 0.9], hspace=1.95, wspace=0.6)
     ax_space, ax_goal = fig.add_subplot(grid[0, 1:5]), fig.add_subplot(grid[1, 1:5])
-    ax_pg, ax_pg_origin = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
-    ax_hs, ax_hs_origin = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
+    ax_threshold, ax_diff = fig.add_subplot(grid[2, 0:3]), fig.add_subplot(grid[2, 3:6])
+    ax_sines, ax_weights = fig.add_subplot(grid[3, 0:3]), fig.add_subplot(grid[3, 3:6])
     ax_wave, ax_cf = fig.add_subplot(grid[4, 0:3]), fig.add_subplot(grid[4, 3:6])
-    ax_waves = [fig.add_subplot(grid[5, c:c + 2]) for c in (0, 2, 4)]
-    ax_bells = [fig.add_subplot(grid[6, c:c + 2]) for c in (0, 2, 4)]
-    for ax in ax_waves[1:]:
-        ax.sharey(ax_waves[0])
-    for ax in ax_bells[1:]:
-        ax.sharey(ax_bells[0])
-
-    # a partial sum against its target, as curves and as areas under curve x
-    # p(z). the curves are scaled by one common factor, so the target curve is
-    # as high as its area and the two curves stay comparable
-    def build_up(ax, part, target, family, target_family, unit, target_name, title, first):
-        scale = (target * pz).max() / target.max()
-        ax.fill_between(z, target * pz, color=_BAND[target_family], lw=0,
-                        label=rf"{target_name} $\times\, p(z)$")
-        ax.fill_between(z, part * pz, color=_FILL[family], alpha=0.75, lw=0,
-                        label=rf"sum of {unit} $\times\, p(z)$")
-        ax.plot(z, part * pz, color=_LINE[family], lw=0.8)
-        # the outline of the target area on top, so it stays visible where
-        # the sum covers it
-        ax.plot(z, target * pz, color=_tone(target_family, 1.25), lw=1.6, zorder=3)
-        _dashed(ax, z, target * scale, target_family, label=f"{target_name} (scaled)")
-        ax.plot(z, part * scale, color=_LINE[family], lw=2, label=f"sum of {unit} (scaled)")
-        ax.set_xlim(*window)
-        # shared y axis, so the legend room only once
-        _finish(ax, title, room=0.6 if first else 0, legend=first)
+    ax_sums = [fig.add_subplot(grid[5, c:c + 2]) for c in (0, 2, 4)]
+    for ax in ax_sums[1:]:
+        ax.sharey(ax_sums[0])
 
     # ── setup: the classifier, the density model and the point with a
     # missing feature, in feature space ──
@@ -608,112 +256,173 @@ def _plot_pcpg_step_by_step(d, texts, out_path, title=None):
     _goal_panel(ax_goal, z, pz, sigma, d["answer"], texts["goal_title"])
     ax_goal.set_xlim(*window)
 
-    # ── steps 1 and 2: the sums (only curves), then where the pieces come from ──
-    ax = ax_pg
-    _band(ax, z, sigma, _SIGMA_BAND, label=r"$\sigma(z)$")
-    for color, lw, k in zip(_BELL_LINES, _SUM_WIDTHS, d["bell_ks"]):
-        ax.plot(z, d["bells"][by_weight[:k]].sum(axis=0), color=color, lw=lw, label=plural(k, "bell", n_bells))
-    ax.set_xlim(z[0], z[-1])
-    _finish(ax, r"$\sigma(z)$ as a sum of bells", room=0.4)
+    # ── step 1: sigma(z) = P(L <= z), so the goal is P(z - L > 0) ──
+    ax = ax_threshold
+    t, f_l, z0 = d["t"], d["logistic"], d["z0"]
+    below = t <= z0
+    ax.fill_between(t, f_l, color=_CAT["grey"], lw=0, label="density of the threshold $L$")
+    ax.fill_between(t[below], f_l[below], color=_FILL["gold"], lw=0,
+                    label=rf"$P(L \le {z0:g}) = \sigma({z0:g}) = {1 / (1 + np.exp(-z0)):.3f}$")
+    ax.axvline(z0, color=_LINE["gold"], lw=1.6)
+    _dashed(ax, t, f_l.max() / (1 + np.exp(-t)), "gold", label=r"$\sigma(z)$ (scaled)")
+    ax.set_xlim(t[0], t[-1])
+    _finish(ax, r"$\sigma(z)$ is the probability that $L \le z$", xlabel="threshold $L$", room=0.5)
 
-    ax = ax_pg_origin
-    ga, gd = d["gamma_axis"], d["pg_density"]
-    ax.fill_between(ga, gd / gd.max() * d["rhos"].max(), color=_CAT["grey"], lw=0,
-                    label="PG(1,0) density (scaled)")
-    others = np.arange(n_bells) != d["j"]
-    ax.vlines(d["gammas"][others], 0, d["rhos"][others], color=_FILL["indigo"], lw=3.5,
-              label=r"chosen widths $\gamma$")
-    ax.vlines(d["gamma"], 0, d["rhos"][d["j"]], color=_LINE["indigo"], lw=3.5,
-              label=rf"the followed width $\gamma = {d['gamma']:.3f}$")
-    ax.set_xlim(ga[0], ga[-1])
-    _finish(ax, r"Where do the bells come from? Widths $\gamma$ from PG(1,0)", xlabel=r"bell width $\gamma$")
+    ax = ax_diff
+    positive = z > 0
+    ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$")
+    ax.fill_between(z[positive], d["p_diff"][positive], color=_FILL["gold"], lw=0,
+                    label=rf"$P(z - L > 0)$: area {d['diff_area']:.4f}")
+    ax.plot(z, d["p_diff"], color=_LINE["indigo"], lw=2.2, label="density of $z - L$")
+    ax.axvline(0, color=_CAT["overlay"], lw=1, ls=(0, (3, 2)))
+    ax.set_xlim(*d["diff_window"])
+    _finish(ax, r"So the prediction is the probability that $z - L > 0$", xlabel="$z - L$", room=0.5)
 
-    ax = ax_hs
-    _band(ax, z, d["bell"], _BELL_BAND, label="the followed bell")
+    # ── step 2: sigma(z) as a sum of sine waves, and their weights ──
+    ax = ax_sines
+    zw = d["z_wide"]
+    ax.fill_between(zw, 0.5 * d["pz_wide"] / d["pz_wide"].max(), color=_CAT["grey"], lw=0,
+                    label="$p(z)$ (scaled)")
+    _band(ax, zw, 1 / (1 + np.exp(-zw)), _SIGMA_BAND, label=r"$\sigma(z)$")
     for color, lw, k in zip(_WAVE_LINES, _SUM_WIDTHS, d["wave_ks"]):
-        ax.plot(z, d["waves"][:k].sum(axis=0), color=color, lw=lw, label=plural(k, "wave", n_waves))
-    ax.set_xlim(z[0], z[-1])
-    _finish(ax, "A bell as a sum of waves")
+        ax.plot(zw, d["base_wide"] + d["waves_wide"][:k].sum(axis=0), color=color, lw=lw,
+                label=_count(k, n, "wave"))
+    ax.set_xlim(zw[0], zw[-1])
+    _finish(ax, r"$\sigma(z)$ as a sum of sine waves", room=0.45, legend=False)
+    ax.legend(loc="upper left", ncol=2)
 
-    ax = ax_hs_origin
-    u_max = 1.1 * np.abs(d["u_all"]).max()
-    u_axis = np.linspace(-u_max, u_max, 600)
-    dens = np.exp(-u_axis**2 / (2 * d["gamma"]))
-    ax.fill_between(u_axis, dens * d["u_weights"].max(), color=_CAT["grey"], lw=0,
-                    label=r"$N(0, \gamma)$ density (scaled)")
-    ax.vlines(d["u_all"], 0, d["u_weights"], color=_LINE["coral"], lw=2.2, label=r"chosen frequencies $u$")
-    ax.set_xlim(-u_max, u_max)
-    _finish(ax, r"Where do the waves come from? Frequencies $u$ from $N(0, \gamma)$",
-            xlabel="wave frequency $u$")
+    ax = ax_weights
+    ax.axhline(1, color=_CAT["overlay"], lw=2, ls=(0, (5, 2.5)), label="the step: the same for every frequency")
+    ax.plot(s_axis, np.pi * s_axis / np.sinh(np.pi * s_axis), color=_tone("coral", 0.7), lw=2.5,
+            label=r"$\sigma(z)$: damped by $\pi s / \sinh(\pi s)$")
+    ax.vlines(s, 0, np.pi * s / np.sinh(np.pi * s), color=_LINE["coral"], lw=2.2,
+              label=rf"the {n} frequencies $s_k = k h$")
+    ax.set_xlim(0, 1.05 * s[-1])
+    ax.set_ylabel("weight, relative to the step", fontsize=12)
+    _finish(ax, r"Where do the weights come from? The step, smoothed by $L$", xlabel="wave frequency $s$",
+            room=0.5)
 
     # ── step 3: the area under a wave, the slow one coral, the fast one wine,
     # both in one panel as in the thesis figure ──
     ax = ax_wave
     ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label="$p(z)$")
     for family, i, name in zip(("coral", "wine"), d["show_waves"], ("slow", "fast")):
-        ax.plot(z, d["cosines"][i] * pz.max(), color=_LINE[family], lw=1, ls=(0, (4, 2)))
-        ax.fill_between(z, d["cosines"][i] * pz, color=_FILL[family], alpha=0.85, lw=0,
-                        label=rf"{name} wave, $u = {d['u_pairs'][i]:.2f}$: area ${d['wave_avgs'][i]:+.3f}$")
-        ax.plot(z, d["cosines"][i] * pz, color=_LINE[family], lw=1.2)
+        ax.plot(z, d["sines"][i] * pz.max(), color=_LINE[family], lw=1, ls=(0, (4, 2)))
+        ax.fill_between(z, d["sines"][i] * pz, color=_FILL[family], alpha=0.85, lw=0,
+                        label=rf"{name} wave, $s = {s[i]:.2f}$: area ${d['im_phi'][i]:+.3f}$")
+        ax.plot(z, d["sines"][i] * pz, color=_LINE[family], lw=1.2)
     ax.set_xlim(*window)
     ax.set_ylim(-1.15 * pz.max(), 1.25 * pz.max())
     _finish(ax, r"The area under wave $\times\, p(z)$", room=0.45)
 
     ax = ax_cf
-    u_max = 1.05 * d["u_pairs"].max()
-    u_axis = np.linspace(0, u_max, 800)
-    ax.plot(u_axis, d["wave_avg_fn"](u_axis), color=_tone("coral", 0.7), lw=2.5,
-            label=r"area for any frequency $u$: $\mathrm{Re}[e^{-iuc}\,\phi(u)]$")
-    ax.plot(d["u_pairs"], d["wave_avgs"], "o", color=_LINE["coral"], ms=5.5,
-            label="the waves of the followed bell")
+    ax.plot(s_axis, d["im_phi_fn"](s_axis), color=_tone("coral", 0.7), lw=2.5,
+            label=r"area for any frequency $s$: $\mathrm{Im}\,\phi(s)$")
+    ax.plot(s, d["im_phi"], "o", color=_LINE["coral"], ms=5.5, label=f"the {n} waves")
     for family, i, name in zip(("coral", "wine"), d["show_waves"], ("slow", "fast")):
-        u, a = d["u_pairs"][i], d["wave_avgs"][i]
-        ax.plot(u, a, "o", ms=15, mfc="none", mec=_LINE[family], mew=2)
-        ax.annotate(name, (u, a), xytext=(14, 10), textcoords="offset points", fontsize=12,
+        ax.plot(s[i], d["im_phi"][i], "o", ms=15, mfc="none", mec=_LINE[family], mew=2)
+        ax.annotate(name, (s[i], d["im_phi"][i]), xytext=(14, 10), textcoords="offset points", fontsize=12,
                     color=_LINE[family])
-    ax.set_xlim(0, u_max)
+    ax.set_xlim(0, 1.05 * s[-1])
     ax.set_ylabel(r"area under wave $\times\, p(z)$", fontsize=12)
     _finish(ax, r"The area of every wave, from the characteristic function $\phi$",
-            xlabel="wave frequency $u$", room=0.5)
+            xlabel="wave frequency $s$", room=0.5)
 
-    # ── steps 4 and 5: the sums and their areas build up, for 1, 2 and all pieces ──
-    for ax, k in zip(ax_waves, _first_two_and_all(d["wave_ks"])):
-        extra = rf"  (bell {d['bell_avg']:.4f})" if k == n_waves else ""
-        build_up(ax, d["waves"][:k].sum(axis=0), d["bell"], "coral", "indigo", "waves", "bell",
-                 f"{plural(k, 'wave', n_waves).capitalize()}: area {d['wave_parts'][:k].sum():.4f}{extra}",
-                 ax is ax_waves[0])
-
-    for ax, k in zip(ax_bells, _first_two_and_all(d["bell_ks"])):
-        extra = rf"  (exact {d['answer']:.4f})" if k == n_bells else ""
-        build_up(ax, d["bells"][by_weight[:k]].sum(axis=0), sigma, "indigo", "gold", "bells", r"$\sigma(z)$",
-                 f"{plural(k, 'bell', n_bells).capitalize()}: area "
-                 f"{d['bell_parts'][by_weight[:k]].sum():.4f}{extra}",
-                 ax is ax_bells[0])
+    # ── step 4: the sums of waves and their areas build up, for 1, 2 and all
+    # waves. the curves are scaled by one common factor, so sigma(z) is as
+    # high as its area and the two curves stay comparable ──
+    scale = (sigma * pz).max()
+    for ax, k in zip(ax_sums, _first_two_and_all(d["wave_ks"])):
+        first = ax is ax_sums[0]
+        part = d["base"] + d["waves"][:k].sum(axis=0)
+        ax.fill_between(z, sigma * pz, color=_BAND["gold"], lw=0, label=r"$\sigma(z) \times p(z)$")
+        ax.fill_between(z, part * pz, color=_FILL["coral"], alpha=0.75, lw=0,
+                        label=r"sum of waves $\times\, p(z)$")
+        ax.plot(z, part * pz, color=_LINE["coral"], lw=0.8)
+        # the outline of the target area on top, so it stays visible where
+        # the sum covers it
+        ax.plot(z, sigma * pz, color=_tone("gold", 1.25), lw=1.6, zorder=3)
+        _dashed(ax, z, sigma * scale, "gold", label=r"$\sigma(z)$ (scaled)")
+        ax.plot(z, part * scale, color=_LINE["coral"], lw=2, label="sum of waves (scaled)")
+        ax.set_xlim(*window)
+        area = d["base_part"] + d["wave_parts"][:k].sum()
+        extra = rf"  (exact {d['answer']:.4f})" if k == n else ""
+        # shared y axis, so the legend room only once
+        _finish(ax, f"{_count(k, n, 'wave').capitalize()}: area {area:.4f}{extra}", room=0.6 if first else 0,
+                legend=first)
 
     # the setup panel is square, so its explanation as wide as the goal's
     _caption(fig, ax_space, texts["setup"], x0=ax_goal.get_position().x0, x1=ax_goal.get_position().x1)
     _caption(fig, ax_goal, texts["goal"])
-    _row_caption(fig, [ax_pg, ax_pg_origin], texts["pg"], texts["pg_origin"])
-    _row_caption(fig, [ax_hs, ax_hs_origin], texts["hs"], texts["hs_origin"])
+    _row_caption(fig, [ax_threshold, ax_diff], texts["threshold"], texts["difference"])
+    _row_caption(fig, [ax_sines, ax_weights], texts["sines"], texts["weights"])
     _row_caption(fig, [ax_wave, ax_cf], texts["wave_area"], texts["cf"])
-    _row_caption(fig, ax_waves, texts["waves"])
-    _row_caption(fig, ax_bells, texts["bells"])
+    _row_caption(fig, ax_sums, texts["sums"])
     rows = [("Setup", "A point with a missing feature", [ax_space]),
             ("Goal", texts["goal_heading"], [ax_goal]),
-            ("Step 1", r"$\sigma(z)$ is a sum of bells", [ax_pg, ax_pg_origin]),
-            ("Step 2", "Every bell is a sum of waves", [ax_hs, ax_hs_origin]),
+            ("Step 1", r"$\sigma(z)$ is the probability that $z$ beats a random threshold",
+             [ax_threshold, ax_diff]),
+            ("Step 2", r"$\sigma(z)$ is a sum of sine waves", [ax_sines, ax_weights]),
             ("Step 3", "The area under a wave comes from the model", [ax_wave, ax_cf]),
-            ("Step 4", "The wave areas add up to the area under a bell", ax_waves),
-            ("Step 5", r"The bell areas add up to the area under $\sigma(z) \times p(z)$", ax_bells)]
+            ("Step 4", r"The wave areas add up to the area under $\sigma(z) \times p(z)$", ax_sums)]
     _headings(fig, rows, title)
     # a white margin, so the page border of a pdf viewer does not touch the panels
     fig.savefig(out_path, bbox_inches="tight", pad_inches=1)
     plt.close(fig)
 
+# ── cfi figures for the thesis (estimate_demo.py) ─────────────────────────────
+
+# the thesis figures in the colours of the step-by-step figure, at the thesis
+# sizes: the sums of waves as in its step 2, the slow and fast wave as in its
+# step 3 (coral and wine)
+
+# the line widths of the step-by-step figure, scaled to the thesis
+_THESIS_SCALE = 0.45
+
+# a single panel for the thesis, at 3/4 of the text width
+def _thesis_panel():
+    return plt.subplots(figsize=(0.75 * THESIS_WIDTH, 2.2))
+
+# sums of the slowest sine waves closing in on sigmoid(z)
+@styled
+def plot_thesis_waves(d, out_path):
+    fig, ax = _thesis_panel()
+    zw, n = d["z_wide"], len(d["s"])
+    _band(ax, zw, 1 / (1 + np.exp(-zw)), _SIGMA_BAND, label=r"$\sigma(z)$", lw=13 * _THESIS_SCALE)
+    for color, lw, k in zip(_WAVE_LINES, _SUM_WIDTHS, d["wave_ks"]):
+        ax.plot(zw, d["base_wide"] + d["waves_wide"][:k].sum(axis=0), color=color, lw=lw * _THESIS_SCALE,
+                label=_count(k, n, "wave"))
+    ax.axhline(0, color="0.6", lw=0.5)
+    ax.set_xlim(zw[0], zw[-1])
+    ax.set_ylim(-0.3, 1.5)
+    ax.set_xlabel(r"$z$")
+    ax.legend(loc="upper left", ncol=3)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+# the area under wave x p(z) for a slow (coral) and a fast (wine) sine wave:
+# the expectation of the wave, which the characteristic function gives
+@styled
+def plot_thesis_cf(d, out_path):
+    fig, ax = _thesis_panel()
+    z, pz = d["z"], d["pz"]
+    ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label=r"$p(z)$")
+    for family, i in zip(("coral", "wine"), d["show_waves"]):
+        ax.plot(z, d["sines"][i] * pz.max(), color=_LINE[family], lw=0.6, ls=(0, (3, 2)))
+        ax.fill_between(z, d["sines"][i] * pz, color=_FILL[family], alpha=0.85, lw=0,
+                        label=rf"$s = {d['s'][i]:.2f}$: area ${d['im_phi'][i]:+.3f}$")
+        ax.plot(z, d["sines"][i] * pz, color=_LINE[family], lw=0.8)
+    ax.axhline(0, color="0.6", lw=0.5)
+    ax.set_xlim(*d["window"])
+    ax.set_ylim(-1.1 * pz.max(), 2.1 * pz.max())
+    ax.set_xlabel(r"$z$")
+    ax.legend(loc="upper left")
+    fig.savefig(out_path)
+    plt.close(fig)
 
 # ── the 2d toy problem (utils/toy.py) ─────────────────────────────────────────
 
-# the feature space panels of the step-by-step figures (estimate_overview_demo.py
+# the feature space panels of the step-by-step figures (estimate_demo.py
 # and train_demo.py): label 1 is butter yellow like sigma, which is its
 # probability, label 0 slate; the prediction sigma(w^T x) is a white to butter
 # background; p(x) grey
@@ -798,111 +507,7 @@ def _along_line(ax, d, sigma=True):
     ax.set_xlim(X2[0], X2[-1])
 
 
-# ── pcpg figures for the thesis (estimate_overview_demo.py) ──────────────────
-
-# the thesis figures in the colours of the step-by-step figure, at the thesis
-# sizes: the sums of bells and waves as in its steps 1 and 2, the slow and fast
-# wave as in its step 3 (coral and wine), the summary as in its step 5 (indigo
-# bells against the butter-yellow sigmoid(z) x p(z))
-
-# the line widths of the step-by-step figure, scaled to the thesis
-_THESIS_SCALE = 0.45
-
-def _count(k, n, unit):
-    return f"{k} {unit}{'s' if k > 1 else ''}"
-
-# a single panel for the thesis, at 3/4 of the text width
-def _thesis_panel():
-    return plt.subplots(figsize=(0.75 * THESIS_WIDTH, 2.2))
-
-# partial sums against their target, as in steps 1 and 2 of the step-by-step figure
-def _thesis_sums(ax, z, target, band, label, sums, ks, n, unit, colors):
-    _band(ax, z, target, band, label=label, lw=13 * _THESIS_SCALE)
-    for color, lw, k, part in zip(colors, _SUM_WIDTHS, ks, sums):
-        ax.plot(z, part, color=color, lw=lw * _THESIS_SCALE, label=_count(k, n, unit))
-
-# sums of the bells with the largest weights closing in on sigmoid(z)
-@styled
-def plot_thesis_bells(d, out_path):
-    fig, ax = _thesis_panel()
-    z = d["z"]
-    ks = d["bell_ks"]
-    _thesis_sums(ax, z, 1 / (1 + np.exp(-z)), _SIGMA_BAND, r"$\sigma(z)$",
-                 [d["bells"][d["by_weight"][:k]].sum(axis=0) for k in ks], ks, len(d["bells"]), "bell",
-                 _BELL_LINES)
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(-0.03, 1.08)
-    ax.set_xlabel(r"$z$")
-    ax.legend(loc="upper left")
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# sums of the slowest waves closing in on the followed bell
-@styled
-def plot_thesis_waves(d, out_path):
-    fig, ax = _thesis_panel()
-    z = d["z"]
-    ks = d["wave_ks"]
-    _thesis_sums(ax, z, d["bell"], _BELL_BAND, r"bell $e^{z/2 - \gamma z^2/2}$",
-                 [d["waves"][:k].sum(axis=0) for k in ks], ks, len(d["waves"]), "wave", _WAVE_LINES)
-    ax.axhline(0, color="0.6", lw=0.5)
-    ax.set_xlim(z[0], z[-1])
-    ax.set_ylim(-0.25 * d["bell"].max(), 1.55 * d["bell"].max())
-    ax.set_xlabel(r"$z$")
-    ax.legend(loc="upper left", ncol=2)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# the area under wave x p(z) for a slow (coral) and a fast (wine) wave: the
-# expectation of the wave, which the characteristic function gives
-@styled
-def plot_thesis_cf(d, out_path):
-    fig, ax = _thesis_panel()
-    z, pz = d["z"], d["pz"]
-    ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label=r"$p(z)$")
-    for family, i in zip(("coral", "wine"), d["show_waves"]):
-        ax.plot(z, d["cosines"][i] * pz.max(), color=_LINE[family], lw=0.6, ls=(0, (3, 2)))
-        ax.fill_between(z, d["cosines"][i] * pz, color=_FILL[family], alpha=0.85, lw=0,
-                        label=rf"$u = {d['u_pairs'][i]:.2f}$: area ${d['wave_avgs'][i]:+.3f}$")
-        ax.plot(z, d["cosines"][i] * pz, color=_LINE[family], lw=0.8)
-    ax.axhline(0, color="0.6", lw=0.5)
-    ax.set_xlim(-10, 10)
-    ax.set_ylim(-1.1 * pz.max(), 2.1 * pz.max())
-    ax.set_xlabel(r"$z$")
-    ax.legend(loc="upper left")
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# the area under sigmoid(z) x p(z) rebuilt from the bells with the largest
-# weights, nested fills in the bell colours (the partial sums only grow, every
-# bell is positive), the exact area as a dashed outline. the numbers are the
-# pcpg estimates, every bell's area from its waves
-@styled
-def plot_thesis_summary(d, out_path):
-    fig, ax = plt.subplots(figsize=(THESIS_WIDTH, 2.3))
-    z, pz = d["z"], d["pz"]
-    sigma = 1 / (1 + np.exp(-z))
-    n = len(d["bells"])
-    ax.fill_between(z, pz, color=_CAT["grey"], lw=0, label=r"$p(z)$")
-    ks = d["bell_ks"]
-    for color, k in reversed(list(zip(_BELL_LINES, ks))):
-        part = d["bells"][d["by_weight"][:k]].sum(axis=0) * pz
-        estimate = d["bell_parts"][d["by_weight"][:k]].sum()
-        ax.fill_between(z, part, color=color, lw=0)
-        ax.fill_between([], [], color=color, label=rf"{_count(k, n, 'bell')}: ${estimate:.4f}$")
-    ax.plot(z, sigma * pz, color=_LINE["gold"], lw=1.3, ls=(0, (3, 2)),
-            label=rf"$\sigma(z)\, p(z)$: ${d['answer']:.4f}$ (exact)")
-    ax.set_xlim(-9, 9)
-    ax.set_ylim(0, 1.08 * pz.max())
-    ax.set_xlabel(r"$z$")
-    lines = ax.get_legend_handles_labels()
-    order = [0] + list(range(len(lines[0]) - 2, 0, -1)) + [len(lines[0]) - 1]
-    ax.legend([lines[0][i] for i in order], [lines[1][i] for i in order], loc="upper left")
-    fig.savefig(out_path)
-    plt.close(fig)
-
-
-# ── gmm gauss-hermite step by step (estimate_overview_demo.py) ───────────────
+# ── gmm gauss-hermite step by step (estimate_demo.py) ───────────────
 
 def plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     with plt.rc_context(_BIG_STYLE):
@@ -917,7 +522,7 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     comp_line = dict(zip(order, [_LINE["indigo"]] + _tones("indigo", n_comp - 1, lo=0.6, hi=1.2)))
     comp_fill = dict(zip(order, [_tone("indigo", 1.25)] + _tones("indigo", n_comp - 1, lo=0.3, hi=0.75)))
 
-    # 6 columns, as in the pcpg figure
+    # 6 columns, as in the cfi figure
     fig = plt.figure(figsize=(16, 34))
     grid = fig.add_gridspec(4, 6, height_ratios=[1, 1, 0.9, 0.9], hspace=1.95, wspace=0.6)
     ax_mix, ax_split = fig.add_subplot(grid[0, 0:3]), fig.add_subplot(grid[0, 3:6])
@@ -1032,7 +637,7 @@ def _plot_gmm_gh_step_by_step(d, texts, out_path, title=None):
     plt.close(fig)
 
 
-# ── monte carlo step by step (estimate_overview_demo.py) ─────────────────────
+# ── monte carlo step by step (estimate_demo.py) ─────────────────────
 
 def plot_mc_step_by_step(d, texts, out_path, title=None):
     with plt.rc_context(_BIG_STYLE):
@@ -1046,7 +651,7 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
     # weight dark, the others lighter
     comp_line = dict(zip(order, [_LINE["indigo"]] + _tones("indigo", n_comp - 1, lo=0.6, hi=1.2)))
 
-    # 6 columns, as in the pcpg figure
+    # 6 columns, as in the cfi figure
     fig = plt.figure(figsize=(16, 34))
     grid = fig.add_gridspec(4, 6, height_ratios=[1, 1, 0.9, 1], hspace=1.95, wspace=0.6)
     ax_draw, ax_scores = fig.add_subplot(grid[0, 0:3]), fig.add_subplot(grid[0, 3:6])
@@ -1174,27 +779,21 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
 
 # ── estimator comparison (estimate.py) ───────────────────────────────────────
 
-# thesis figures of the experiments: the error (rmse over the test points) of
-# the methods, in the line colours of the method figures (_LINE, as in the
-# step-by-step figure). every method has one colour in every figure: pcpg
-# indigo like the bells, mc coral, mean imputation the grey of p(z). the pcpg
-# variants are coloured by the part that is mc: the outer integral (bells)
-# pastel indigo, the inner one (waves) pastel coral, both wine
+# thesis figures of the experiments: the error (mean kl over the test points) of
+# the methods, in the line colours of the step-by-step figures (_LINE). every
+# method has one colour in every figure: cfi and pclr indigo, mc coral, the
+# conditional mean green, mean imputation the grey of p(z)
 _METHOD_STYLE = {
     "Mean imputation": dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker=None),
     "MC":              dict(color=_LINE["coral"], marker="o"),
-    "PCPG":            dict(color=_LINE["indigo"], marker="s"),
-    "PCPG exact inner": dict(color=_LINE["indigo"], ls=(0, (4, 2)), marker="s", mfc="white"),
-    "PCPG outer MC":   dict(color=_FILL["indigo"], marker="^"),
-    "PCPG inner MC":   dict(color=_FILL["coral"], marker="v"),
-    "PCPG full MC":    dict(color=_LINE["wine"], marker="D"),
+    "CFI":             dict(color=_LINE["indigo"], marker="s"),
+    "PCLR":            dict(color=_LINE["indigo"], marker="s"),
+    "Conditional mean": dict(color=_LINE["green"], marker="^"),
+    "PCLR fixed density": dict(color=_tone("indigo", 1.0), marker="s", mfc="white"),
 }
+
 def _percent(rate):
     return rf"{round(100 * rate)}\%"
-
-# one row of three panels at the text width, the legend above them
-def _three_panels(**kwargs):
-    return plt.subplots(1, 3, figsize=(THESIS_WIDTH, 2.1), layout="constrained", **kwargs)
 
 def _top_legend(fig, ax, ncol):
     handles, labels = ax.get_legend_handles_labels()
@@ -1219,26 +818,35 @@ def plot_estimate_comparison(features, rates, errors, times, n_points, out_path)
             ax.set_yscale("log")
         column[0].set_title(f"{_percent(rate)} missing")
         column[1].set_xlabel("features")
-    axes[0, 0].set_ylabel("RMSE")
+    axes[0, 0].set_ylabel(r"KL$(p \,\|\, \hat p)$")
     axes[1, 0].set_ylabel(f"time for {n_points:,} points (s)".replace(",", r"\,"))
     _top_legend(fig, axes[0, 0], ncol=len(errors[rates[0]]))
     fig.savefig(out_path)
     plt.close(fig)
 
-# the four pcpg variants, error against budget, one panel per missing rate.
-# results: one dict per missing rate, name -> (budgets, errors)
+# cfi with different numbers of frequencies, laid out like plot_estimate_comparison: the
+# error on top, the time below. every count its own colour and marker, from few to many
+# frequencies. errors and times: missing rate -> count -> one value per number of features
+# variants of one method: shades of cfi's indigo, clearly different from light to dark
+_COUNT_STYLES = [dict(color=_tone("indigo", 0.8), marker="o"), dict(color=_tone("indigo", 1.2), marker="^"),
+                 dict(color=_tone("indigo", 1.6), marker="D"), dict(color=_tone("indigo", 2.0), marker="s")]
+
 @styled
-def plot_pcpg_variants(rates, results, out_path):
-    fig, axes = _three_panels(sharey=True)
-    for ax, rate, result in zip(axes, rates, results):
-        for name, (budgets, values) in result.items():
-            _method_line(ax, budgets, values, name)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("budget (cf evaluations)")
-        ax.set_title(f"{_percent(rate)} missing")
-    axes[0].set_ylabel("RMSE")
-    _top_legend(fig, axes[0], ncol=len(results[0]))
+def plot_cfi_frequencies(features, rates, errors, times, n_points, out_path):
+    fig, axes = plt.subplots(2, 3, figsize=(THESIS_WIDTH, 3.8), layout="constrained", sharex=True, sharey="row")
+    counts = list(errors[rates[0]])
+    for column, rate in zip(axes.T, rates):
+        for ax, values in zip(column, (errors, times)):
+            for count, style in zip(counts, _COUNT_STYLES):
+                ax.plot(features, values[rate][count], color=style["color"], marker=style["marker"], ms=3, lw=1.1,
+                        label=f"{count} frequencies")
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+        column[0].set_title(f"{_percent(rate)} missing")
+        column[1].set_xlabel("features")
+    axes[0, 0].set_ylabel(r"KL$(p \,\|\, \hat p)$")
+    axes[1, 0].set_ylabel(f"time for {n_points:,} points (s)".replace(",", r"\,"))
+    _top_legend(fig, axes[0, 0], ncol=len(counts))
     fig.savefig(out_path)
     plt.close(fig)
 
@@ -1248,87 +856,77 @@ def plot_pcpg_variants(rates, results, out_path):
 # is the target, a pale wide butter band as every target, the methods that
 # reach it sit inside it
 
-# the difference can come out at 0, the log axis needs a floor
-def _positive(values):
-    return np.maximum(np.asarray(values, dtype=float), 1e-10)
-
-# the two configurations of train.py: raw data solid with filled markers,
-# standardized data dashed with open markers
-_CONFIGS = (("raw", "raw", "-", None), ("standardized", "standardized", (0, (4, 2)), "white"))
-
-# columns per missing rate, titles on top, "features" below, the legend above,
-# then saved
-def _train_axes(fig, axes, rates, ncol, out_path):
-    for ax in axes.flat:
-        ax.set_xscale("log")
-    for ax, rate in zip(axes[0], rates):
-        ax.set_title(f"{_percent(rate)} missing")
-    for ax in axes[-1]:
-        ax.set_xlabel("features")
-    _top_legend(fig, axes[-1, 0], ncol=ncol)
+# the training comparison of train.py: every model trained on incomplete points and
+# tested on complete ones, against the number of features. a column per missing rate, the
+# log-loss on top and the accuracy below, every panel its own y-axis. the lr on complete
+# data is the target band. results: score -> missing rate -> name -> one value per number
+# of features
+@styled
+def plot_training_comparison(features, rates, results, out_path):
+    fig, axes = plt.subplots(2, len(rates), figsize=(1.15 * THESIS_WIDTH, 3.1), layout="constrained", sharex=True,
+                             squeeze=False)
+    for column, rate in zip(axes.T, rates):
+        for ax, score in zip(column, ("log_loss", "accuracy")):
+            values = results[score][rate]
+            _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
+            for name in ("Mean imputation", "Conditional mean", "PCLR fixed density", "PCLR"):
+                _method_line(ax, features, values[name], name)
+            ax.set_xscale("log")
+        column[0].set_title(f"{_percent(rate)} missing")
+        column[1].set_xlabel("features")
+    axes[0, 0].set_ylabel("log-loss")
+    axes[1, 0].set_ylabel("accuracy")
+    _top_legend(fig, axes[0, 0], ncol=5)
     fig.savefig(out_path)
     plt.close(fig)
 
-# complete data as the target band, mean imputation, mc and pcpg as lines
-# (exact left out, it lies on pcpg). values: name -> one value per number of features
-def _accuracy_panel(ax, features, values):
-    _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
-    for name in ("Mean imputation", "MC", "PCPG"):
-        _method_line(ax, features, values[name], name)
-
-# the mean difference of the test predictions of mc and pcpg to those of exact
-# training, both configurations in one panel per missing rate. both:
-# configuration -> score -> missing rate -> name -> one value per number of features
+# the convergence of the training (train.py): the relative error of w against the number
+# of training points, at one number of features and missing rate, both axes logarithmic.
+# a consistent estimate falls like a line, a biased one flattens. the lr on complete data
+# is the target band. errors: name -> one value per number of training points
 @styled
-def plot_train_difference(features, rates, both, out_path):
-    fig, axes = plt.subplots(1, 3, figsize=(THESIS_WIDTH, 2.4), layout="constrained", sharey=True, squeeze=False)
+def plot_convergence(n_trains, errors, n_features, rate, out_path):
+    fig, ax = plt.subplots(figsize=(0.75 * THESIS_WIDTH, 2.6), layout="constrained")
+    _band(ax, n_trains, errors["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
+    for name in ("Mean imputation", "Conditional mean", "PCLR"):
+        _method_line(ax, n_trains, errors[name], name)
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("training points")
+    ax.set_ylabel(r"relative error of $w$")
+    ax.set_title(f"{n_features} features, {_percent(rate)} missing")
+    _top_legend(fig, ax, ncol=2)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+# how far the learned weights are from the true ones (train.py), the relative error
+# |w - w_true| / |w_true| against the number of features, a panel per missing rate. the lr
+# on complete data is the target band. errors: missing rate -> name -> one value per
+# number of features
+@styled
+def plot_weight_error(features, rates, errors, out_path):
+    fig, axes = plt.subplots(1, len(rates), figsize=(1.15 * THESIS_WIDTH, 2.1), layout="constrained", sharex=True,
+                             squeeze=False)
     for ax, rate in zip(axes[0], rates):
-        for config, label, ls, mfc in _CONFIGS:
-            for name in ("MC", "PCPG"):
-                style = _METHOD_STYLE[name]
-                ax.plot(features, _positive(both[config]["difference"][rate][name]), color=style["color"], ls=ls,
-                        marker=style["marker"], ms=3, lw=1.1, mfc=mfc, label=f"{name}, {label}")
-        ax.set_yscale("log")
-    axes[0, 0].set_ylabel("difference to Exact")
-    _train_axes(fig, axes, rates, 4, out_path)
-
-# the accuracy on the incomplete test points of one configuration, a row per
-# prediction rule: the exact expected prediction, mean imputation, and every
-# model's own rule. results: score -> missing rate -> name -> one value per number of features
-@styled
-def plot_train_accuracy_missing(features, rates, results, out_path):
-    fig, axes = plt.subplots(3, 3, figsize=(THESIS_WIDTH, 5.4), layout="constrained", sharex=True, sharey=True)
-    for row, (score, ylabel) in zip(axes, (("accuracy_exact", "accuracy, exact"),
-                                           ("accuracy_mean", "accuracy, mean imp."),
-                                           ("accuracy_own", "accuracy, own rule"))):
-        for ax, rate in zip(row, rates):
-            _accuracy_panel(ax, features, results[score][rate])
-        row[0].set_ylabel(ylabel)
-    _train_axes(fig, axes, rates, 4, out_path)
-
-# an accuracy of mean imputation, mc and pcpg (score in both, as in
-# plot_train_difference) against the number of features, a row per
-# configuration (raw, standardized) and a column per missing rate. the target
-# band is the complete-data classifier with reference (its score, if None)
-@styled
-def plot_train_accuracy(features, rates, both, score, reference, out_path):
-    fig, axes = plt.subplots(2, 3, figsize=(THESIS_WIDTH, 3.9), layout="constrained", sharex=True, sharey="row")
-    for row, (config, label, _, _) in zip(axes, _CONFIGS):
-        for ax, rate in zip(row, rates):
-            values = dict(both[config][score][rate])
-            values["Complete data"] = both[config][reference or score][rate]["Complete data"]
-            _accuracy_panel(ax, features, values)
-        row[0].set_ylabel(f"accuracy, {label}")
-    _train_axes(fig, axes, rates, 4, out_path)
-
+        values = errors[rate]
+        _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
+        for name in ("Mean imputation", "Conditional mean", "PCLR fixed density", "PCLR"):
+            _method_line(ax, features, values[name], name)
+        ax.set_xscale("log")
+        ax.set_title(f"{_percent(rate)} missing")
+        ax.set_xlabel("features")
+    axes[0, 0].set_ylabel(r"relative error of $w$")
+    _top_legend(fig, axes[0, 0], ncol=5)
+    fig.savefig(out_path)
+    plt.close(fig)
 
 # ── training step by step (train_demo.py) ────────────────────────────────────
 
 # how a logistic regression is trained when features are missing, on the 2d
 # toy problem (see train_demo.py). the setup, the goal (the lowest point of the
 # loss over w), then one training step at the current w (predict every point,
-# the loss), changing w and repeating, and where training ends. pcpg and mc
-# side by side where they differ. the exact values a butter band, pcpg indigo,
+# the loss), changing w and repeating, and where training ends. cfi and mc
+# side by side where they differ. the exact values a butter band, cfi indigo,
 # mc coral, the current w slate. d is a dict, see train_demo.py
 
 def plot_training_step_by_step(d, out_path):
@@ -1336,8 +934,8 @@ def plot_training_step_by_step(d, out_path):
         _plot_training_step_by_step(d, _training_texts(d), out_path)
 
 # the trained classifiers, in the colours of the experiment figures: exact a
-# butter band, pcpg indigo, mc with few samples light coral, with as many as
-# pcpg has nodes deep coral, complete data dotted slate, mean imputation dashed grey
+# butter band, cfi indigo, mc with few samples light coral, with as many as
+# cfi has frequencies deep coral, complete data dotted slate, mean imputation dashed grey
 _MC_FEW, _MC_SAME = _tone("coral", 1.0), _DEEP["coral"]
 _COMPLETE = dict(color=_CAT["text"], lw=1.8, ls=(0, (1, 1.5)))
 _MEAN = dict(color=_CAT["overlay"], lw=1.8, ls=(0, (4, 2)))
@@ -1367,12 +965,12 @@ def _training_texts(d):
                  r"prediction. For a complete point it is just $\sigma(w^\top{}x)$, the colour at the point. "
                  r"For an incomplete point, like the one followed here (line), it is the average of $\sigma$ "
                  r"along its line, weighted by the density model $p(x_2\mid{}x_1)$ (grey)."),
-        predict_point=(rf"PCPG computes this average exactly: {d['prediction_now_pcpg']:.3f}. MC tries "
+        predict_point=(rf"CFI computes this average exactly: {d['prediction_now_cfi']:.3f}. MC tries "
                        rf"{d['mc_few']} random values of $x_2$ from the density model and averages $\sigma$ at them: "
                        rf"{d['prediction_now_mc']:.3f}. Other random values would give a different number."),
         h2="Measure how wrong the predictions are: the loss",
         point_loss=(rf"The followed point has label {y}, so what counts is its probability of label {y}: "
-                    rf"{right(d['prediction_now_pcpg']):.3f}. Its loss is $-\log$ of that: small when the "
+                    rf"{right(d['prediction_now_cfi']):.3f}. Its loss is $-\log$ of that: small when the "
                     r"probability is close to 1, large when it is close to 0. "
                     rf"With MC's estimate {mc:.3f} the loss would be {-np.log(mc):.3f}."),
         all_losses=(rf"The losses of all {d['n_points']} points at the current $w$. Their average is the loss "
@@ -1380,17 +978,17 @@ def _training_texts(d):
         h3=r"Change $w$ a little to lower the loss, and repeat",
         landscape=(r"Training then changes $w$ a little in the direction that lowers the loss, and starts again "
                    r"with step 1 at the new $w$, again and again from $w=0$ (dots: every "
-                   rf"{d['dot_every']} steps, ring: the $w$ of steps 1 and 2). PCPG's predictions are exact, so it "
+                   rf"{d['dot_every']} steps, ring: the $w$ of steps 1 and 2). CFI's predictions are exact, so it "
                    r"walks the same path as exact training, to $w^*$. MC's are random, and $-\log$ of a random "
                    r"prediction is too large on average, the more the longer $w$. So MC with "
                    rf"{d['mc_few']} samples stops early (cross), with {d['mc_same']} samples it gets close."),
-        gaps=(r"The loss during training, minus its lowest value. PCPG keeps going down like exact training, "
+        gaps=(r"The loss during training, minus its lowest value. CFI keeps going down like exact training, "
               rf"MC with {d['mc_few']} samples stops far above."),
         h_result="Where training ends",
-        ends=(r"The boundaries at the end of training. PCPG ends on the exact one (yellow), close to the "
+        ends=(r"The boundaries at the end of training. CFI ends on the exact one (yellow), close to the "
               r"classifier trained on complete data, which saw all features. MC with "
               rf"{d['mc_few']} samples ends with a shorter $w$ ($\|w\|={norm(d['paths_mc'][0][-1]):.2f}$ against "
-              rf"{norm(d['path_pcpg'][-1]):.2f}): a similar boundary, but a less sure classifier. Mean imputation, "
+              rf"{norm(d['path_cfi'][-1]):.2f}): a similar boundary, but a less sure classifier. Mean imputation, "
               r"which fills in the average of $x_2$, turns the boundary by "
               rf"{abs(angle(d['w_mean']) - angle(d['w_star'])):.0f}$^\circ$."),
     )
@@ -1462,7 +1060,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     _along_line(ax, d, sigma=False)
     _dashed(ax, X2, sigma, "gold", label=r"$\sigma(w^\top x)$ on the line")
     ax.fill_between(X2, sigma * dens / dens.max(), color=_FILL["indigo"], alpha=0.75, lw=0,
-                    label=rf"PCPG: the average, {d['prediction_now_pcpg']:.3f}")
+                    label=rf"CFI: the average, {d['prediction_now_cfi']:.3f}")
     s = d["mc_samples"]
     values = 1 / (1 + np.exp(-(w_now[0] * d["x1"] + w_now[1] * s)))
     ax.vlines(s, 0, values, color=_FILL["coral"], lw=2.5)
@@ -1475,7 +1073,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     ax = ax_curve
     q = np.linspace(0.02, 1, 400)
     ax.plot(q, -np.log(q), color=_CAT["text"], lw=2, label=r"loss $-\log p$")
-    for p, color, name in ((right(d["prediction_now_pcpg"]), _LINE["indigo"], "PCPG"),
+    for p, color, name in ((right(d["prediction_now_cfi"]), _LINE["indigo"], "CFI"),
                            (right(d["prediction_now_mc"]), _LINE["coral"], "MC")):
         ax.plot([p, p], [0, -np.log(p)], color=color, lw=1.2, ls=(0, (3, 2)))
         ax.plot(p, -np.log(p), "o", color=color, ms=12, mec="white", mew=1.5, zorder=5,
@@ -1490,7 +1088,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     ax = ax_hist
     ax.hist(d["losses_now"], bins=40, color=_CAT["grey"], ec="white", lw=0.5, label="every point")
     ax.axvline(d["loss_now"], color=_CAT["text"], lw=2.2, label=rf"the average: $L(w)={d['loss_now']:.3f}$")
-    ax.axvline(-np.log(right(d["prediction_now_pcpg"])), color=_LINE["indigo"], lw=2, ls=(0, (3, 2)),
+    ax.axvline(-np.log(right(d["prediction_now_cfi"])), color=_LINE["indigo"], lw=2, ls=(0, (3, 2)),
                label="the followed point")
     ax.set_ylabel("points", fontsize=12)
     _finish(ax, "The losses of all points", xlabel="loss", room=0.35, legend=False)
@@ -1503,8 +1101,8 @@ def _plot_training_step_by_step(d, texts, out_path):
     for k, path in enumerate(d["paths_mc"]):
         ax.plot(*path.T, color=_MC_FEW, lw=1.6, zorder=3, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
     ax.plot(*d["path_mc_same"].T, color=_MC_SAME, lw=1.8, zorder=3, label=f"MC, {d['mc_same']} samples")
-    ax.plot(*d["path_pcpg"].T, color=_LINE["indigo"], lw=2.4, zorder=4, label="PCPG")
-    ax.plot(*d["path_pcpg"][::d["dot_every"]].T, "o", color=_LINE["indigo"], ms=5, zorder=4)
+    ax.plot(*d["path_cfi"].T, color=_LINE["indigo"], lw=2.4, zorder=4, label="CFI")
+    ax.plot(*d["path_cfi"][::d["dot_every"]].T, "o", color=_LINE["indigo"], ms=5, zorder=4)
     ax.plot(*w_now, "o", ms=14, mfc="none", mec=_CAT["text"], mew=2, zorder=6)
     ax.plot(*d["mc_minimum"], "X", color=_DEEP["coral"], ms=17, mec="white", zorder=6)
     w_axes(ax)
@@ -1519,7 +1117,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     for k, g in enumerate(d["gaps_mc"]):
         ax.plot(steps, floor(g), color=_MC_FEW, lw=1.6, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
     ax.plot(steps, floor(d["gaps_mc_same"]), color=_MC_SAME, lw=1.8, label=f"MC, {d['mc_same']} samples")
-    ax.plot(steps, floor(d["gaps_pcpg"]), color=_LINE["indigo"], lw=2.4, label="PCPG")
+    ax.plot(steps, floor(d["gaps_cfi"]), color=_LINE["indigo"], lw=2.4, label="CFI")
     ax.set_yscale("log")
     ax.set_xlim(0, steps[-1])
     ax.set_xlabel("step", fontsize=12)
@@ -1529,13 +1127,13 @@ def _plot_training_step_by_step(d, texts, out_path):
 
     # ── result: the boundaries at the end ──
     ax = ax_result
-    _prediction_background(ax, d["path_pcpg"][-1], d)
+    _prediction_background(ax, d["path_cfi"][-1], d)
     _training_points(ax, d, alpha=0.4, lines=False, label=False)
     _boundary(ax, d["w_star"], color=_SIGMA_BAND, lw=11, solid_capstyle="butt", zorder=1, label="exact")
     _boundary(ax, d["w_complete"], zorder=3, label="complete data", **_COMPLETE)
     _boundary(ax, d["w_mean"], zorder=3, label="mean imputation", **_MEAN)
     _boundary(ax, d["paths_mc"][0][-1], color=_MC_FEW, lw=1.6, zorder=3, label=f"MC, {d['mc_few']} samples")
-    _boundary(ax, d["path_pcpg"][-1], color=_LINE["indigo"], lw=2.2, zorder=4, label="PCPG")
+    _boundary(ax, d["path_cfi"][-1], color=_LINE["indigo"], lw=2.2, zorder=4, label="CFI")
     _feature_axes(ax, d)
     _side_legend(ax)
 

@@ -8,23 +8,19 @@ import time
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.linear_model import LogisticRegression
 
 from side.utils.data import loader
-from side.utils.plots import (plot_estimate_comparison, plot_train_accuracy_missing, plot_train_difference,
-                              plot_train_accuracy, save_figure)
+from side.utils.plots import (plot_convergence, plot_estimate_comparison, plot_training_comparison,
+                              plot_weight_error, save_figure)
 from side.utils.gmm import GMM
-from side.utils.spflow_pc import SPFlowPC
 
-# the density models: K gmm components, and the circuit of both pcs (gaussians
-# per feature, sum nodes per region, random structures)
-K              = 4
-PC_CHANNELS    = 4
-PC_REPETITIONS = 3
-PC_DEPTH       = 2
+# the number of components of the gmm
+K = 4
 
 
-# the density model ("gmm", "pc" or "spflow") fit on the points x (nan =
+# the density model (so far only "gmm") fit on the points x (nan =
 # missing, the likelihood leaves those features out), saved as path and
 # loaded from there if it was fit before, then frozen
 def fit_density(model, x, path, device):
@@ -34,8 +30,6 @@ def fit_density(model, x, path, device):
         # the means start at the first K points, their gaps filled with the means
         first = torch.where(torch.isnan(x[:K]), x.nanmean(dim=0), x[:K])
         px = GMM(device, K=K, means_init=first, n_features=n_features).to(device)
-    elif model == "pc":
-        px = SPFlowPC(device, n_features, channels=PC_CHANNELS, repetitions=PC_REPETITIONS, depth=PC_DEPTH)
 
     if os.path.exists(path):
         px.load_state_dict(torch.load(path, map_location=device))
@@ -67,8 +61,8 @@ def optimum(objective, predict, x, y, n_train, device):
 
 
 # sklearn's logistic regression on the complete points x with labels y, without
-# an intercept, as a tensor w
-def logistic_regression(x, y, C):
+# an intercept and with the l2 penalty C (sklearn's default 1), as a tensor w
+def logistic_regression(x, y, C=1.0):
     classifier = LogisticRegression(C=C, fit_intercept=False, max_iter=1000).fit(x.cpu(), y.cpu())
     return torch.tensor(classifier.coef_[0], dtype=torch.float32, device=x.device)
 
@@ -78,85 +72,51 @@ def accuracy(p, y):
     return ((p > 0.5).float() == y).float().mean().item()
 
 
-# the scores of train.py as series for the figures: score -> missing rate ->
-# model -> one value per number of features
-def _series(scores, features, missing_rates):
-    results = {}
-    for score in scores[(features[0], missing_rates[0])]["Exact"]:
-        results[score] = {}
-        for rate in missing_rates:
-            results[score][rate] = {}
-            for name in scores[(features[0], rate)]:
-                results[score][rate][name] = [scores[(n, rate)][name][score] for n in features]
-    return results
+# the errors of estimate.py. every method is a function method(first, w, x_partial,
+# **settings) (pclr.py, side/utils/baselines.py), first is the density (the means for
+# mean imputation), the settings are its counts (n_freq, n_samples, n_outer, ...).
+# on a batch of test points (B, D) it returns a tensor (B,)
 
+# the predictions of a method on the points, without gradients, as a numpy array
+def predictions(method, first, w, points, **settings):
+    with torch.no_grad():
+        return method(first, w, points, **settings).cpu().numpy()
 
-# the comparison of train.py: scores[(n_features, missing_rate)][model][score]
-# holds the scores of every model in every setting of one configuration (suffix
-# ends in _norm for the standardized data). saved as cache/<folder>/scores<suffix>.json,
-# and drawn against the number of features, a column per missing rate, in
-# figures/<folder>/ and the thesis: the accuracy on the incomplete test points
-# of this configuration (comparison<suffix>_accuracy_missing), and once both
-# configurations are saved, for both: the difference to exact, the accuracy on
-# the complete test points, and on the incomplete ones with every model's own
-# rule against the complete-data classifier with the exact expected prediction
-# (comparison<suffix without _norm>_difference, _accuracy_complete, _accuracy_own)
-def compare(scores, features, missing_rates, folder, suffix):
-    os.makedirs(f"cache/{folder}", exist_ok=True)
-    with open(f"cache/{folder}/scores{suffix}.json", "w") as file:
-        json.dump({f"{n}_{rate}": scores[(n, rate)] for n, rate in scores}, file)
-    save_figure(plot_train_accuracy_missing, folder, f"comparison{suffix}_accuracy_missing", features,
-                missing_rates, _series(scores, features, missing_rates))
+# mean kl divergence KL(p || p_hat) between the bernoulli of the exact value p and
+# of the estimate p_hat over the test points: the extra log-loss of predicting
+# with p_hat instead of p. unlike the rmse it also sees errors close to 0 and 1.
+# both are clamped to [eps, 1 - eps] as in the loss of train.py, since the
+# quadrature can return values slightly outside [0, 1]
+KL_EPS = 1e-6
 
-    base = suffix.removesuffix("_norm")
-    paths = {"raw": f"cache/{folder}/scores{base}.json", "standardized": f"cache/{folder}/scores{base}_norm.json"}
-    if not all(os.path.exists(path) for path in paths.values()):
-        return
-    both = {}
-    for config, path in paths.items():
-        with open(path) as file:
-            saved = json.load(file)
-        both[config] = _series({(n, rate): saved[f"{n}_{rate}"] for n in features for rate in missing_rates},
-                               features, missing_rates)
-    save_figure(plot_train_difference, folder, f"comparison{base}_difference", features, missing_rates, both)
-    save_figure(plot_train_accuracy, folder, f"comparison{base}_accuracy_complete", features, missing_rates,
-                both, "accuracy_complete", None)
-    save_figure(plot_train_accuracy, folder, f"comparison{base}_accuracy_own", features, missing_rates,
-                both, "accuracy_own", "accuracy_exact")
+def kl(estimates, truths):
+    # in float64: the estimates are float32, and 1 - p_hat in float32 is too coarse close to 1
+    p     = np.clip(np.asarray(truths, dtype=np.float64), KL_EPS, 1 - KL_EPS)
+    p_hat = np.clip(np.asarray(estimates, dtype=np.float64), KL_EPS, 1 - KL_EPS)
+    return float(np.mean(p * np.log(p / p_hat) + (1 - p) * np.log((1 - p) / (1 - p_hat))))
 
-
-# the errors of estimate.py. every estimator is called as estimator.estimate(w,
-# x_partial, **kwargs), on a batch of test points (B, D) it returns an array
-# (B,), the kwargs are the swept counts (n_samples, n_outer, n_inner, n_nodes)
-
-# root mean squared error over the test points (B, D), against their exact
-# values (B,). for the random methods every test point gets one run, so the
-# noise is part of the error
-def rmse(estimator, w, points, truths, **kwargs):
-    return float(np.sqrt(np.mean(np.square(estimator.estimate(w, points, **kwargs) - truths))))
-
-# rmse and the wall clock time of one batched call over all points, and the
+# kl and the wall clock time of one batched call over all points, and the
 # estimates of that call. the truths belong to the first len(truths) points,
 # the error is over those, the time is for all of them. after one call to warm
 # up (gpu kernels, cached nodes), the call is repeated `repeats` times and the
-# time is the median. the estimators return arrays on the cpu, so the gpu has
+# time is the median. the predictions are numpy arrays on the cpu, so the gpu has
 # finished when the clock stops
-def timed_rmse(estimator, w, points, truths, repeats=3, **kwargs):
-    estimator.estimate(w, points, **kwargs)
+def timed_kl(method, first, w, points, truths, repeats=3, **settings):
+    predictions(method, first, w, points, **settings)
     times = []
     for _ in range(repeats):
         t0 = time.perf_counter()
-        estimates = estimator.estimate(w, points, **kwargs)
+        estimates = predictions(method, first, w, points, **settings)
         times.append(time.perf_counter() - t0)
         if len(times) == 1:
-            first = estimates
-            error = float(np.sqrt(np.mean(np.square(estimates[:len(truths)] - truths))))
-    return error, float(np.median(times)), first
+            first_estimates = estimates
+            error = kl(estimates[:len(truths)], truths)
+    return error, float(np.median(times)), first_estimates
 
 
 # the comparison of estimate.py: scores[(n_features, missing_rate)][estimator]
-# holds the rmse and the time of every estimator in every setting. one figure,
-# against the number of features, one column per missing rate: the rmse on
+# holds the kl and the time of every estimator in every setting. one figure,
+# against the number of features, one column per missing rate: the kl on
 # top, the time for all n_points test points below, as figures/<folder>/<name>
 # and in the thesis
 def compare_estimates(scores, features, missing_rates, n_points, folder, name):
@@ -167,3 +127,56 @@ def compare_estimates(scores, features, missing_rates, n_points, folder, name):
             errors[rate][estimator] = [scores[(n, rate)][estimator][0] for n in features]
             times[rate][estimator] = [scores[(n, rate)][estimator][1] for n in features]
     save_figure(plot_estimate_comparison, folder, name, features, missing_rates, errors, times, n_points)
+
+
+# ── the training comparison of train.py ───────────────────────────────────────
+
+# the scores of one trained model: the log-loss and the accuracy on the complete test points
+# (sigmoid(w^T x)) and on the incomplete ones (its own predictions p_missing), and the
+# relative error |w - w_true| / |w_true| of its weights. predictions clamped to [eps, 1 - eps]
+def training_scores(w, p_missing, x_test, y_test, w_true, eps=1e-6):
+    p_complete = torch.sigmoid(x_test @ w)
+    return {
+        "log_loss_complete": F.binary_cross_entropy(p_complete.clamp(eps, 1 - eps), y_test).item(),
+        "accuracy_complete": accuracy(p_complete, y_test),
+        "log_loss_incomplete": F.binary_cross_entropy(p_missing.clamp(eps, 1 - eps), y_test).item(),
+        "accuracy_incomplete": accuracy(p_missing, y_test),
+        "w_error": ((w - w_true).norm() / w_true.norm()).item(),
+    }
+
+# the scores of every model in one setting as a table
+def print_training_scores(n_features, missing_rate, scores):
+    print(f"\n{n_features} features, {missing_rate:.0%} missing")
+    print(f"    {'':<22}{'complete test':>22}{'incomplete test':>22}{'w error':>10}")
+    for name, score in scores.items():
+        print(f"    {name:<22}{score['log_loss_complete']:>11.4f}{score['accuracy_complete']:>11.4f}"
+              f"{score['log_loss_incomplete']:>11.4f}{score['accuracy_incomplete']:>11.4f}{score['w_error']:>10.3f}")
+
+# the comparison of train.py: scores[(n_features, rate)][model][score] of every setting,
+# saved as cache/<folder>/training_scores<suffix>.json, and drawn against the number of
+# features: on complete and on incomplete test points (training_<test>_test<suffix>, a
+# column per missing rate, log-loss and accuracy), and the error of w (weights<suffix>)
+def compare_training(scores, features, missing_rates, folder, suffix):
+    os.makedirs(f"cache/{folder}", exist_ok=True)
+    with open(f"cache/{folder}/training_scores{suffix}.json", "w") as file:
+        json.dump({f"{n}_{rate}": scores[(n, rate)] for n, rate in scores}, file, indent=1)
+
+    names = list(scores[(features[0], missing_rates[0])])
+    for test in ("complete", "incomplete"):
+        results = {}
+        for score in ("log_loss", "accuracy"):
+            results[score] = {rate: {name: [scores[(n, rate)][name][f"{score}_{test}"] for n in features]
+                                     for name in names} for rate in missing_rates}
+        save_figure(plot_training_comparison, folder, f"training_{test}_test{suffix}", features, missing_rates, results)
+
+    errors = {rate: {name: [scores[(n, rate)][name]["w_error"] for n in features] for name in names}
+              for rate in missing_rates}
+    save_figure(plot_weight_error, folder, f"weights{suffix}", features, missing_rates, errors)
+
+# the convergence of train.py: errors[model] = the relative error of w per number of
+# training points, saved as cache/<folder>/convergence_errors<suffix>.json and drawn
+def compare_convergence(n_trains, errors, n_features, missing_rate, folder, suffix):
+    os.makedirs(f"cache/{folder}", exist_ok=True)
+    with open(f"cache/{folder}/convergence_errors{suffix}.json", "w") as file:
+        json.dump({"n_trains": n_trains, "errors": errors}, file, indent=1)
+    save_figure(plot_convergence, folder, f"convergence{suffix}", n_trains, errors, n_features, missing_rate)

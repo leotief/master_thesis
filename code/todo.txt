@@ -17,6 +17,4 @@ sum porduct decompilation
 better use cirkit for pcs
 
 next time:
-train jointly like pn image
-make pg quadrature better - best not need to regularize w
 icml latex template

@@ -8,7 +8,7 @@
 #   - the conditional p(x_mis | x_obs) is again a mixture with the same means
 #     and variances (restricted to the missing dims), only the weights change
 #     to the posterior p(k | x_obs)
-# both the mc baseline (sample) and pcpg (characteristic_function) use this.
+# both the mc baseline (sample) and pghs / cfi (characteristic_function) use this.
 
 import torch
 import torch.nn as nn
@@ -100,7 +100,7 @@ class GMM(nn.Module):
 
     # characteristic function of p(x_mis | x_obs), i.e. phi(t) = E[exp(i t^T x_mis) | x_obs]
     #
-    # this is the only thing pcpg needs from the density. for a gaussian the cf is
+    # this is the only thing pghs needs from the density. for a gaussian the cf is
     # exp(i t^T mu - t^T Sigma t / 2), and for the mixture it is the weighted sum
     #   phi(t) = sum_k p(k | x_obs) exp(i t^T mu_k - sum_d t_d^2 var_kd / 2)
     # with mu_k and var_k restricted to the missing dims.
@@ -140,10 +140,23 @@ class GMM(nn.Module):
         return weights, m, v
 
     # mean of z = w^T x given x_obs, i.e. sum_k p(k | x_obs) m_k, shape () or (B,).
-    # the pcpg estimators use its sign to decide whether to flip w (sigma(z) = 1 - sigma(-z))
+    # the pghs estimators use its sign to decide whether to flip w (sigma(z) = 1 - sigma(-z))
     def z_mean(self, w, x_obs):
         weights, m, _ = self.z_mixture(w, x_obs)
         return (weights * m).sum(dim=-1)
+
+    # the points with the missing features filled by their conditional mean given
+    # the observed ones, the posterior-weighted mean of the components. shape of x_obs
+    def conditional_mean(self, x_obs):
+        weights = self._component_weights(x_obs)
+        return torch.where(torch.isnan(x_obs), weights @ self.means, x_obs)
+
+    # variance of z = w^T x given x_obs, the variance within the components plus
+    # the spread of their means, shape () or (B,). cfi chooses its step with it
+    def z_var(self, w, x_obs):
+        weights, m, v = self.z_mixture(w, x_obs)
+        mean = (weights * m).sum(dim=-1, keepdim=True)
+        return (weights * (v + (m - mean)**2)).sum(dim=-1)
 
     # maximum likelihood by gradient descent (adam) instead of em, mainly because
     # forward() already handles nan, so the same code works on incomplete data.

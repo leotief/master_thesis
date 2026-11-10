@@ -7,11 +7,13 @@
 #   classification  sklearn's make_classification, split into train and test
 #   hide            a copy of points with some of their features set to nan
 #   load_data       both of them for train.py and estimate.py, as tensors
+#   load_real       a real dataset (sklearn or openml), split and hidden the same way
+#   load_lr_data    data where the label comes from a logistic regression, for train.py
 #   loader          a shuffled loader over points, to fit a density model
 
 import numpy as np
 import torch
-from sklearn.datasets import make_classification
+from sklearn.datasets import fetch_openml, load_breast_cancer, make_classification
 from sklearn.model_selection import train_test_split
 
 # make_classification (gaussian clusters, balanced classes) with features
@@ -51,7 +53,7 @@ def hide(x, missing_rate, rng):
 # are hidden is not. returns the training points (complete and incomplete),
 # their labels, the test points (complete and incomplete) and their labels, as
 # tensors
-def load_data(n_features, missing_rate, informative, seed, device, standardize=False):
+def load_data(n_features, missing_rate, informative, seed, device, standardize=True):
     x_train, x_test, y_train, y_test = classification(n_features, informative, standardize=standardize)
     rng = np.random.default_rng(seed)
     x_missing = hide(x_train, missing_rate, rng)
@@ -63,3 +65,51 @@ def load_data(n_features, missing_rate, informative, seed, device, standardize=F
 # a shuffled loader over the points x (tensor), what the density models fit on
 def loader(x, batch_size=64):
     return torch.utils.data.DataLoader(torch.utils.data.TensorDataset(x), batch_size=batch_size, shuffle=True)
+
+
+# the real datasets: complete, continuous features and a binary label. name -> openml id,
+# breast cancer comes with sklearn. openml downloads once and caches in ~/scikit_learn_data
+REAL_DATASETS = {"breast cancer": None, "banknote": 1462, "spambase": 44, "magic": 1120}
+
+# a real dataset, split into train and test (stratified, 20 % test) by seed, standardized
+# on the training points, and with missing_rate of the features of every point hidden.
+# returns the same six tensors as load_data
+def load_real(name, missing_rate, seed, device):
+    if REAL_DATASETS[name] is None:
+        x, y = load_breast_cancer(return_X_y=True)
+    else:
+        data = fetch_openml(data_id=REAL_DATASETS[name], as_frame=False, parser="auto")
+        x = np.asarray(data.data, dtype=float)
+        y = (data.target == np.unique(data.target)[1]).astype(np.int64)
+    x_train, x_test, y_train, y_test = train_test_split(x.astype(np.float32), y.astype(np.int64), test_size=0.2,
+                                                        random_state=seed, stratify=y)
+    mean, std = x_train.mean(axis=0), x_train.std(axis=0)
+    x_train, x_test = (x_train - mean) / std, (x_test - mean) / std
+    rng = np.random.default_rng(seed)
+    x_missing = hide(x_train, missing_rate, rng)
+    x_test_missing = hide(x_test, missing_rate, rng)
+    arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test)
+    return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]
+
+
+# data where logistic regression is the right model: the features from a gmm with random
+# means and spreads, a fixed random w_true, and every label drawn with the probability
+# sigmoid(w_true^T x). w_true is scaled so that z = w_true^T x has the spread z_std, which
+# sets how separable the classes are. training and test points get missing features at
+# the same rate. returns the training points (complete and incomplete), their labels, the
+# test points (complete and incomplete), their labels and w_true, as tensors
+def load_lr_data(n_features, missing_rate, seed, device, n_train=5000, n_test=20_000, n_components=4, z_std=3.0):
+    rng = np.random.default_rng(seed)
+    means = rng.normal(0, 1.5, (n_components, n_features))
+    stds = rng.uniform(0.5, 1.5, (n_components, n_features))
+    n = n_train + n_test
+    component = rng.integers(n_components, size=n)
+    x = means[component] + stds[component] * rng.standard_normal((n, n_features))
+    w_true = rng.standard_normal(n_features)
+    w_true *= z_std / (x @ w_true).std()
+    y = (rng.uniform(size=n) < 1 / (1 + np.exp(-(x @ w_true)))).astype(np.int64)
+    x_train, x_test, y_train, y_test = x[:n_train], x[n_train:], y[:n_train], y[n_train:]
+    x_missing = hide(x_train, missing_rate, rng)
+    x_test_missing = hide(x_test, missing_rate, rng)
+    arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test, w_true)
+    return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]

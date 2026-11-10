@@ -5,11 +5,10 @@
 
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\E}{\mathbb{E}}
-\newcommand{\PG}{\mathrm{PG}}
 \newcommand{\xo}{x^o}
 \newcommand{\xm}{x^m}
 
-\subsection{Setup} Consider a logistic regression, with missing features in the observation.\\ 
+\subsection{Setup} Consider a logistic regression, with missing features in the observation.\\
 Let $x := (\xo, \xm) \in \R^{d}$. Then the logistic regression is defined as
 \[
   p(y \mid x) := \sigma (w^T x), \qquad w \in \R^{d}.
@@ -21,308 +20,221 @@ Additionally we have a PC that models the density $p(x)$.
   p(y \mid \xo) := \E_{p(\xm \mid \xo)} \left[\sigma \left( w^T x \right) \right].
 \]
 
-If it were not for the non-linear sigmoid function $\sigma$, we would be able to calculate this in a smooth 
-and decomposable PC, by pulling the Expectation -which is linear- into the leaf nodes. To tackle this we propose to use two tricks.
+If it were not for the non-linear sigmoid function $\sigma$, we would be able to calculate this in a smooth
+and decomposable PC, by pulling the Expectation -which is linear- into the leaf nodes.
 
-\subsection{Trick 1: Pólya-Gamma}
+Our approach rests on two observations. First, $\sigma(w^T x)$ depends on $x$ only through the single
+number $z := w^T x$, so all we need is the distribution of $z$ given $\xo$. Second, this distribution
+itself is hard to get from a PC, but its characteristic function is easy. A classical result from
+probability theory, the Gil-Pelaez inversion formula \cite{gilpelaez1951}, then gives the expected prediction from the
+characteristic function alone.
 
-To replace the sigmoid function we use the PG-Sigmoid identity, shown in \cite{polyagamma}, that states:
+\subsection{The Characteristic Function of $z$}
+\label{subsec:cf-z}
 
-\[
-  \sigma(z) = \frac{1}{2} \exp \left(\frac{1}{2}z\right) \
-  \E_{\gamma \sim \PG(1,0)} \left[\exp \left(-\frac{1}{2} \gamma z^2 \right)\right]
-\]
-for $z \in \R$.
-
-If we set $z := w^T x$, and insert into our expectation, we get:
-\begin{align*}
-  p(y \mid \xo)
-  & = \E_{p(\xm \mid \xo)} \left[\sigma(z)\right] \\
-  & = \E_{p(\xm \mid \xo)} \left[
-       \frac{1}{2}\exp \left(\frac{1}{2}z\right)
-       \E_{\gamma \sim \PG(1,0)} \left[\exp \left(-\frac{1}{2}\gamma z^2 \right)\right]
-     \right] \\
-  & = \frac{1}{2} \E_{p(\xm \mid \xo)} \E_{\gamma \sim \PG(1,0)}
-    \left[ \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right) \right]
-\end{align*}
-
-Intuitively, this means the sigmoid is replaced with a lot of bell-shaped curves averaged together, one for every value of $\gamma$. 
-Figure~\ref{fig:pcpg-bells} shows how well different number of bells approximate $\sigma$.
-
-\begin{figure}[htb]
-  \centering
-  \includegraphics[width=0.75\textwidth]{figures/pcpg/bells.pdf}
-  \caption[The Pólya-Gamma identity]{The Pólya-Gamma identity graphically.
-    The sigmoid represented as an average of bells
-    $\sigma(z) = \E_{\gamma} \left[ \frac{1}{2} e^{\frac{z}{2} - \frac{\gamma z^2}{2}} \right]$.}
-  \label{fig:pcpg-bells}
-\end{figure}
-
-Now, we have a term without a sigmoid, but the $x$ still appears in a quadratic form.
-
-\subsection{Trick 2: Hubbard-Stratonovich (HS)}
-
-To get rid of the quadratic form, we apply the Hubbard--Stratonovich identity \cite{stratonovich1957, hubbard1959}, that states:
-
-\begin{equation}
-    \exp \left( -\tfrac{1}{2} a h^2 \right) = \sqrt{  \frac{1}{2 \pi a}} \int_{-\infty}^{\infty} \exp \left(-\frac{u^2}{2a} -i h u\right) \mathrm{d}u,
-\end{equation}
-
-Since $\frac{1}{\sqrt{2\pi a}}\exp\!\left(-\frac{u^2}{2a}\right)$ is the density of $\mathcal{N}(0,a)$, the integral is
-exactly the expectation of $e^{-ihu}$ over $u \sim \mathcal{N}(0,a)$:
-\begin{equation}
-    \exp \left( -\tfrac{1}{2} a h^2 \right) = \E_{u \sim \mathcal{N}(0,\,a)}\!\left[ e^{-ihu} \right].
-\end{equation}
-
-The trick makes a quadratic term linear at the cost of introducing a helper variable that we need to integrate over. 
-In our term, $x$ appears quadratically as well as linearly. To be able to apply HS, we complete the square (again using $z = w^T x$), where we write $c := \frac{1}{2\gamma}$:
-
-\begin{align}
-  \frac{1}{2}z - \frac{1}{2}\gamma z^2
-  &= -\frac{1}{2}\gamma \left(z^2 - \frac{z}{\gamma}\right) \notag\\
-  &= -\frac{1}{2}\gamma \left(z^2 - 2cz\right) \notag\\
-  &= -\frac{1}{2}\gamma \left(\left(z - c\right)^{2} - c^2\right) \notag\\
-  &= -\frac{1}{2}\gamma \left(z - c\right)^{2} + \frac{1}{2}\gamma c^2 \notag\\
-  &= -\frac{1}{2}\gamma \left(z - c\right)^{2} + \frac{1}{8\gamma}.
-\end{align}
-
-Now we apply HS with $a = \gamma$ and $h = z - c$:
-
-\begin{align}
-  \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right)
-  &= \exp \left(\frac{1}{8\gamma}\right) \exp \left(-\frac{1}{2} \gamma \left(z - c\right)^{2} \right) \notag \\
-  &= \exp \left(\frac{1}{8\gamma}\right) \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \exp \left(-iu \left(z - c\right) \right) \right]
-\end{align}
-
-Substituting back into $p(y \mid \xo)$, we get:
-
-\begin{align*}
-  p(y \mid \xo)
-  &= \frac{1}{2} \E_{p(\xm \mid \xo)} \E_{\gamma \sim \PG(1,0)} \left[ \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right) \right] \\
-  &= \frac{1}{2} \E_{p(\xm \mid \xo)} \E_{\gamma \sim \PG(1,0)} \left[ \exp \left(\frac{1}{8\gamma}\right) \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \exp \left(-iu \left(z - c\right) \right) \right] \right]
-\end{align*}
-
-Intuitively, this means every bell is replaced with a lot of cosine waves $\cos(u(z - c))$ averaged together, one for every value of $u$ (see Appendix~\ref{app:waves} for the derivation).
-Figure~\ref{fig:pcpg-waves} shows how well different numbers of waves approximate a bell.
-
-\begin{figure}[htb]
-  \centering
-  \includegraphics[width=0.75\textwidth]{figures/pcpg/waves.pdf}
-  \caption[The Hubbard-Stratonovich identity]{The Hubbard-Stratonovich identity graphically.
-    A bell from Figure~\ref{fig:pcpg-bells} represented as an average of waves
-    $e^{-\frac{\gamma}{2}(z - c)^2}$.}
-  \label{fig:pcpg-waves}
-\end{figure}
-
-\subsection{Arriving at the Characteristic Function}
-
-To continue, we want the expectation over $\xm$ to be the innermost one, so we swap the order of the expectations:
-\[
-  p(y \mid \xo) = \frac{1}{2} \E_{\gamma \sim \PG(1,0)} \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \exp \left(\frac{1}{8\gamma}\right) \E_{p(\xm \mid \xo)} \left[ \exp \left(-iu \left(z - c\right) \right) \right] \right].
-\]
-This is allowed because \dots
-
-The innermost expectation is now only over $\xm$, with $\xo$ fixed, so we split $z = w^T x$ into its observed and missing parts:
+The characteristic function of a random variable $X$ is
+$\phi_X(s) := \E \left[ \exp(i s^T X) \right]$.
+For $z$ given $\xo$, the expectation is over $\xm$, with $\xo$ fixed, so we split $z = w^T x$ into its observed and missing parts:
 \[
   z = w^T x = w_o^T \xo + w_m^T \xm.
 \]
 
-The $\xo$ part and $c$ are constant under $\E_{p(\xm \mid \xo)}$ and factor out:
+The $\xo$ part is constant under $\E_{p(\xm \mid \xo)}$ and factors out:
 \begin{align*}
-  \E_{p(\xm \mid \xo)} \left[ \exp \left(-iu \left(z - c\right) \right) \right]
-  &= \E_{p(\xm \mid \xo)} \left[ \exp\left(-iu \left(w_o^T \xo - c + w_m^T \xm\right)\right) \right] \\
-  &= \exp\left(iu \left(c - w_o^T \xo\right)\right) \cdot \E_{p(\xm \mid \xo)} \left[ \exp\left(-iw_m^T \xm u\right) \right]
+  \phi_z(s) := \E_{p(\xm \mid \xo)} \left[ \exp(isz) \right]
+  &= \E_{p(\xm \mid \xo)} \left[ \exp\left(is \left(w_o^T \xo + w_m^T \xm\right)\right) \right] \\
+  &= \exp\left(is\, w_o^T \xo\right) \cdot \E_{p(\xm \mid \xo)} \left[ \exp\left(i (s w_m)^T \xm\right) \right]
 \end{align*}
 
-This remaining expectation is a known quantity: the characteristic function of a random variable $X$,
-$\phi_X(s) := \E \left[ \exp(i s^T X) \right]$. Writing $-iw_m^T \xm u = i(-uw_m)^T \xm$, we get:
-
+This remaining expectation is the characteristic function of the missing features given the observed ones,
+evaluated at $s\, w_m$. We get:
 \[
-  \E_{p(\xm \mid \xo)} \left[ \exp \left(-iu \left(z - c\right) \right) \right] = \exp\left(iu \left(c - w_o^T \xo\right)\right) \cdot \phi_{\xm \mid \xo}(-uw_m).
+  \phi_z(s) = \exp\left(is\, w_o^T \xo\right) \cdot \phi_{\xm \mid \xo}(s\, w_m).
 \]
 
-Intuitively, the characteristic function gives the expectation of a wave under the distribution $p(z)$ of $z = w^T x$: for every frequency $u$, it gives the signed area under the wave times $p(z)$ (see Appendix~\ref{app:cf-area} for the derivation).
-Figure~\ref{fig:pcpg-cf} shows this for two different waves, i.e.\ different values of $u$.
+So the observed features only contribute a phase. The function inside the remaining expectation,
+$\exp(i s\, w_m^T \xm) = \prod_{d} \exp(i s\, w_d x_d)$, splits into one factor per feature. Unlike the sigmoid,
+its expectation can therefore be pushed into the leaves of a smooth and decomposable PC
+(Section~\ref{subsec:pc-cf}).
+
+Intuitively, the characteristic function gives the expectation of a wave under the distribution $p(z \mid \xo)$ of $z = w^T x$:
+the real part of $\exp(isz)$ is the wave $\cos(sz)$ and the imaginary part the wave $\sin(sz)$, so for every frequency $s$,
+$\mathrm{Im}\, \phi_z(s) = \E[\sin(sz) \mid \xo]$ is the signed area under the wave $\sin(sz)$ times $p(z \mid \xo)$
+(see Appendix~\ref{app:cf-area} for the derivation). Figure~\ref{fig:cfi-cf} shows this for two different waves, i.e.\ different values of $s$.
 
 \begin{figure}[htb]
   \centering
-  \includegraphics[width=0.75\textwidth]{figures/pcpg/cf.pdf}
+  \includegraphics[width=0.75\textwidth]{figures/cfi/cf.pdf}
   \caption[The characteristic function]{The characteristic function graphically.
     The expectation of a wave under $p(z)$ is the signed area under the wave times $p(z)$ (shaded). Fast waves average to zero, while slower waves give a non-zero value.}
-  \label{fig:pcpg-cf}
+  \label{fig:cfi-cf}
+\end{figure}
+
+Now, we have the characteristic function of $z$, but not yet a way to get the expected prediction from it.
+
+\subsection{The Sigmoid as a Probability}
+
+The sigmoid is the cumulative distribution function of the standard logistic distribution. That means, for
+$L \sim \mathrm{Logistic}(0, 1)$ we have $P(L \leq t) = \sigma(t)$ for every $t \in \R$.
+
+If we let $L$ be independent of $x$, and insert this into our expectation, we get:
+\begin{align*}
+  p(y \mid \xo)
+  &= \E_{p(\xm \mid \xo)} \left[ \sigma(z) \right] \\
+  &= \E_{p(\xm \mid \xo)} \left[ P(L \leq z) \right] \\
+  &= P(L \leq z \mid \xo) \\
+  &= P(z - L \geq 0 \mid \xo),
+\end{align*}
+where the last two probabilities are over both $z$ and $L$.
+
+Intuitively, this means the logistic regression predicts $y = 1$ when $z$ exceeds a random threshold $L$.
+With missing features, $z$ is random as well, and the expected prediction is the probability that the random $z$
+exceeds the random threshold, i.e.\ that the random variable $z - L$ is positive.
+
+\subsection{The Characteristic Function of the Difference}
+
+For independent random variables $X$ and $Y$ the characteristic function of their difference is the product
+$\phi_{X - Y}(s) = \phi_X(s)\, \phi_Y(-s)$. The characteristic function of the standard logistic distribution is
+known in closed form,
+\[
+  \phi_L(s) = \frac{\pi s}{\sinh(\pi s)},
+\]
+with $\phi_L(0) = 1$. It is real and even, so $\phi_L(-s) = \phi_L(s)$, and
+\[
+  \phi_{z - L}(s) = \phi_z(s)\, \frac{\pi s}{\sinh(\pi s)}.
+\]
+
+So the characteristic function of $z - L$ is the one of $z$, which the PC gives us, times a known factor.
+What is left is to get the probability that $z - L$ is positive from its characteristic function.
+
+\subsection{Gil-Pelaez Inversion}
+
+To do this we use the Gil-Pelaez inversion formula \cite{gilpelaez1951}. For a continuous random variable $Y$, it states:
+\begin{equation}
+  P(Y > 0) = \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\mathrm{Im}\, \phi_Y(s)}{s} \, \mathrm{d}s.
+\end{equation}
+
+The idea behind it is that the step function, which is $0$ for negative and $1$ for positive values, can be written as a sum of
+sine waves, $\mathbf{1}[y > 0] = \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\sin(sy)}{s} \mathrm{d}s$. Taking the expectation of
+every wave gives $\E[\sin(sY)] = \mathrm{Im}\, \phi_Y(s)$, and with that the formula.
+
+Since $z - L$ is continuous, $P(z - L \geq 0) = P(z - L > 0)$. With $Y = z - L$, and since $\frac{\pi s}{\sinh(\pi s)}$
+is real, we get:
+\begin{align}
+  p(y \mid \xo)
+  &= \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\mathrm{Im}\, \phi_{z - L}(s)}{s} \, \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{1}{s}\, \mathrm{Im} \left[ \phi_z(s)\, \frac{\pi s}{\sinh(\pi s)} \right] \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \int_0^\infty \frac{\mathrm{Im}\, \phi_z(s)}{\sinh(\pi s)} \, \mathrm{d}s.
+  \label{eq:gil-pelaez}
+\end{align}
+
+This is exact. At $s = 0$ the integrand stays finite: $\mathrm{Im}\, \phi_z(s) \approx s\, \E[z \mid \xo]$ and $\sinh(\pi s) \approx \pi s$
+for small $s$, so it tends to $\E[z \mid \xo] / \pi$.
+
+As a check, take a fixed $z$, i.e.\ no missing features. Then $\phi_z(s) = \exp(isz)$ and
+$\mathrm{Im}\, \phi_z(s) = \sin(sz)$. With the known integral $\int_0^\infty \frac{\sin(sz)}{\sinh(\pi s)} \mathrm{d}s = \frac{1}{2} \tanh\left(\frac{z}{2}\right)$ we get
+\[
+  \frac{1}{2} + \frac{1}{2} \tanh\left(\frac{z}{2}\right) = \frac{1}{1 + e^{-z}} = \sigma(z).
+\]
+
+Intuitively, this means the sigmoid is replaced with a lot of sine waves $\sin(sz)$ added together, one for every frequency $s$,
+each with the weight $\frac{1}{\sinh(\pi s)}$. Slow waves get a large weight, and fast waves an exponentially small one.
+The sigmoid is a smoothed step, and this smoothing is what turns the weight $\frac{1}{\pi s}$ of the step into $\frac{1}{\sinh(\pi s)}$.
+Since the expectation is linear, the expected prediction replaces every wave by its expectation under $p(z \mid \xo)$, which is
+exactly $\mathrm{Im}\, \phi_z(s)$.
+Figure~\ref{fig:cfi-waves} shows how the sum of the slowest waves closes in on the sigmoid.
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=0.75\textwidth]{figures/cfi/waves.pdf}
+  \caption[The sigmoid as a sum of sine waves]{The sigmoid as a sum of sine waves.
+    The sums of the slowest waves $\sin(sz)$, each weighted by $\frac{1}{\sinh(\pi s)}$, at the frequencies of the trapezoid rule (Section~\ref{sec:cfi-integral}), close in on $\sigma(z)$.}
+  \label{fig:cfi-waves}
 \end{figure}
 
 \subsection{Full Formula}
 
-Plugging the result of the previous subsection into $p(y \mid \xo)$ and writing out $c = \frac{1}{2\gamma}$, we obtain:
-\begin{align*}
-  p(y \mid \xo)
-  &= \frac{1}{2} \E_{p(\xm \mid \xo)} \E_{\gamma \sim \PG(1,0)} \left[ \exp \left(\frac{1}{8\gamma}\right) \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \exp \left(-iu \left(z - c\right) \right) \right] \right] \\
-  &= \frac{1}{2} \E_{\gamma \sim \PG(1,0)} \E_{u \sim \mathcal{N}(0, \gamma)} \left[ \exp \left(\frac{1}{8\gamma}\right) \exp\left(iu \left(\frac{1}{2\gamma} - w_o^T \xo\right)\right) \phi_{\xm \mid \xo}(-uw_m) \right]
-\end{align*}
+Plugging the characteristic function of $z$ from Section~\ref{subsec:cf-z} into Equation~\eqref{eq:gil-pelaez}, we obtain:
+\[
+  p(y \mid \xo) = \frac{1}{2} + \int_0^\infty \frac{1}{\sinh(\pi s)}\, \mathrm{Im} \left[ \exp\left(is\, w_o^T \xo\right) \phi_{\xm \mid \xo}(s\, w_m) \right] \mathrm{d}s.
+\]
 
-We propose this as a final expression that we can tractably evaluate.
+We propose this as a final expression that we can tractably evaluate. We call this method \emph{CFI}, for characteristic-function inversion.
 
 \subsection{Summary}
 
-The expected prediction $p(y \mid \xo)$ is the area under $\sigma(z)\, p(z)$. 
-We replace the sigmoid function by a sum of weighted bells. We get the area under each weighted bell times $p(z)$,
-by replacing each bell with a sum of waves and put each wave frequency into the characteristic function, which gives the
-signed area under the wave times $p(z)$. 
+The expected prediction $p(y \mid \xo)$ is the area under $\sigma(z)\, p(z)$.
+We write the sigmoid as the probability that $z$ exceeds a random logistic threshold. This probability we get from the
+characteristic function of $z$ with the Gil-Pelaez formula, which adds up sine waves weighted by $\frac{1}{\sinh(\pi s)}$.
+The expectation of each wave under $p(z)$ is the characteristic function, which the PC computes.
 
-\begin{figure}[htb]
-  \centering
-  \includegraphics[width=\textwidth]{figures/pcpg/summary.pdf}
-  \caption[The expected prediction as a sum of bells]{The expected prediction as a sum of bells.
-    $p(y \mid \xo)$ is the area under $\sigma(z)\, p(z)$ (dashed).
-    Adding up the areas under the weighted bells times $p(z)$ (shaded), each computed from the characteristic function, recovers it.}
-  \label{fig:pcpg-summary}
-\end{figure}
+\section{Calculating the Integral}
+\label{sec:cfi-integral}
 
-\section{Calculating the Two Expectations}
-\label{sec:approx}
+After the Gil-Pelaez inversion, $p(y \mid \xo)$ is a one-dimensional integral over the frequency $s$. There is no closed form solution
+for it, so we need to approximate it. We take a set of points (nodes) and associated weights, and replace the integral with a weighted sum.
 
-After the two tricks, $p(y \mid \xo)$ is an expectation over two variables, $\gamma$ and $u$. There is no closed form solution 
-for this, so we need to approximate it. There are multiple ways to do this, but in all the principle is the same:
-we take a set of points (nodes) and associated weights, and replace the expectation with a weighted sum. 
-
-We write $f(u, \gamma)$ for the term inside the expectations,
+We write $g(s)$ for the term inside the integral,
 \[
-  f(u, \gamma) := \exp \left(\frac{1}{8\gamma}\right) \exp\left(iu \left(\frac{1}{2\gamma} - w_o^T \xo\right)\right) \phi_{\xm \mid \xo}(-uw_m).
+  g(s) := \frac{1}{\sinh(\pi s)}\, \mathrm{Im} \left[ \exp\left(is\, w_o^T \xo\right) \phi_{\xm \mid \xo}(s\, w_m) \right],
+\]
+with $g(0) = \E[z \mid \xo] / \pi$.
+
+\subsection{Trapezoid Rule}
+
+We use the trapezoid rule with step $h$ and $K$ nodes $s_k = kh$. Every node gets the weight $h$, except the one at $s_0 = 0$, which gets $\frac{h}{2}$.
+The resulting estimator is
+\[
+  p(y \mid \xo) \approx \frac{1}{2} + h \left( \frac{\E[z \mid \xo]}{2\pi} + \sum_{k=1}^{K} g(kh) \right).
 \]
 
-\subsection{Monte Carlo}
-\label{subsec:pcpg-mc}
+The integrand is smooth, and for smooth integrands the trapezoid rule converges exponentially fast in the number of nodes.
+Two things have to be chosen: where to stop, and the step $h$.
 
-The simplest way is to sample both expectations.
-We draw $M$ samples $\gamma_j \sim \PG(1,0)$, and for every $\gamma_j$ we draw $N$ samples $u_{ij} \sim \mathcal{N}(0, \gamma_j)$:
-Each sample is weighted equally here, so the weights are $w_j = \frac{1}{M}$ and $\omega_{ij} = \frac{1}{N}$. 
-Since they are not dependent on the sampled values, we can write them outside the sums. The resulting estimator is
+\subsection{Truncation}
 
+Since $|\phi_z(s)| \leq 1$, the part of the integral beyond $S = Kh$ is bounded by
 \[
-  p(y \mid \xo) \approx \frac{1}{2} \cdot \frac{1}{M} \sum_{j=1}^{M} \frac{1}{N} \sum_{i=1}^{N} f(u_{ij}, \gamma_j).
+  \int_S^\infty \frac{1}{\sinh(\pi s)} \, \mathrm{d}s = \frac{1}{\pi} \log \coth\left(\frac{\pi S}{2}\right) \approx \frac{2}{\pi} e^{-\pi S}.
 \]
+For $S = 12$ this is about $3 \cdot 10^{-17}$, below double precision. So we never need frequencies beyond $S = 12$.
 
-This is always unbiased, but the variance can be quite high and we need a large number of samples to get a good estimate.
+\subsection{Step Size}
 
-\subsection{Numerical Integration}
-\label{subsec:pcpg-quad}
+The step $h$ is the important choice. For a fixed $z$ the trapezoid sum
+$h \sum_{k} \frac{\sin(khz)}{\sinh(\pi k h)}$ is periodic in $z$ with period $\frac{2\pi}{h}$. So it can only
+approximate the sigmoid on one period, roughly for $|z| < \frac{\pi}{h}$. Outside of it, the sum repeats instead
+of staying close to $0$ or $1$. The expected prediction is therefore accurate as long as $p(z \mid \xo)$ has
+nearly all its mass within $|z| < \frac{\pi}{h}$.
 
-Both expectations can also be computed by quadrature / numerical integration. 
-The idea is, that instead of having to choose many points and weights randomly to get an acceptable error, 
-we strategically choose a fixed set of specific points and weights that guarantees a certain level of accuracy. 
-
-\subsubsection{Inner Expectation: Gauss--Hermite}
-\label{subsec:gauss-hermite}
-
-The inner expectation is over $u \sim \mathcal{N}(0, \gamma)$.  This is an exact case for a standard Gauss--Hermite quadrature (Section~\ref{subsec:bg-gauss-hermite}).
-
-(Should this be explained in more detail?)
-We can easily get the nodes $t_i$ and weights $\omega_i$ with \texttt{numpy.polynomial.hermite.hermgauss(N)}, which returns the $N$ nodes and weights for the standard normal distribution $\mathcal{N}(0, 1)$.
-We then scale the nodes by $\sqrt{2\gamma}$ and the weights by $\frac{1}{\sqrt{\pi}}$ to transform them for our distribution.
-
+We choose $h$ for every point from the mean $\mu_z = \E[z \mid \xo]$ and the standard deviation
+$\sigma_z = \sqrt{\mathrm{Var}[z \mid \xo]}$ of $z$, so that the period covers $\mu_z \pm 6 \sigma_z$ with a margin of $1$ for the width of
+the sigmoid itself, and so that the nodes reach $S$:
 \[
-  \E_{u \sim \mathcal{N}(0, \gamma)}[f(u, \gamma)] \approx \frac{1}{\sqrt{\pi}} \sum_{i=1}^{N} \omega_i\, f\!\left(\sqrt{2\gamma}\,t_i, \gamma\right).
+  h = \min \left( \frac{\pi}{|\mu_z| + 6 \sigma_z + 1}, \frac{S}{K} \right).
 \]
-Plugging this into the full formula gives
+If the first term is the smaller one, the nodes stop before $S$. For a wide $p(z \mid \xo)$ this does not matter, since the
+characteristic function then decays quickly. For a narrow $p(z \mid \xo)$ far away from zero, $K$ has to be large enough, $K \geq S (|\mu_z| + 6\sigma_z + 1) / \pi$.
+
+The step only affects the error, not the value that is approximated. So it can be chosen for every point separately, and it needs
+no gradient in training.
+
+The mean and the variance of $z$ follow from the mean and the covariance of the missing features,
 \[
-  p(y \mid \xo) \approx \frac{1}{2\sqrt{\pi}} \E_{\gamma \sim \PG(1,0)} \left[ \sum_{i=1}^{N} \omega_i\, f\!\left(\sqrt{2\gamma}\,t_i, \gamma\right) \right].
+  \mu_z = w_o^T \xo + w_m^T \E[\xm \mid \xo], \qquad \sigma_z^2 = w_m^T\, \mathrm{Cov}[\xm \mid \xo]\, w_m.
 \]
+For GMMs and PCs both are available tractably (Section~\ref{sec:density-cf}).
 
-\subsubsection{Outer Expectation: Gauss--PG}
-\label{subsec:pg-quadrature}
+\subsection{Cost}
 
-While for the inner expectation we can use a standard and widely known quadrature rule, 
-there is no standard quadrature rule for an expectation over $\gamma \sim \PG(1,0)$. 
-So we need to construct one ourselves. We do this by using the Golub--Welsch algorithm (Section~\ref{subsec:bg-golub-welsch}), 
-which is the default choice to construct quadrature nodes and weights for Gauss quadratures.
-
-The Golub--Welsch algorithm only needs the moments of the distribution. For
-$\PG(1,0)$ they follow from its Laplace transform
-$\mathcal{L}(t) := \E[e^{-t\gamma}] = \operatorname{sech}(\sqrt{t/2})$, which is
-known in closed form. Then the $k$-th moment is, the $k$-th derivative
-at zero, up to its sign:
-\[
-  \mu_k := \E[\gamma^k] = (-1)^k\, \mathcal{L}^{(k)}(0).
-\]
-
-We then apply the Golub--Welsch procedure and call the rule \emph{Gauss--PG}. It is shown in Algorithm~\ref{alg:gauss-pg}. 
-
-\begin{algorithm}[H]
-\caption{Gauss--PG quadrature rule}
-\label{alg:gauss-pg}
-\begin{algorithmic}[1]
-\Require number of nodes $n$
-\State compute with 200 digits
-\For{$k = 0, \dots, 2n-1$}
-  \State $\mu_k \gets (-1)^k\, \mathcal{L}^{(k)}(0)$ with $\mathcal{L}(t) = \operatorname{sech}(\sqrt{t/2})$
-\EndFor
-\State $H_{ij} \gets \mu_{i+j}$ and $H'_{ij} \gets \mu_{i+j+1}$ for $i, j = 0, \dots, n-1$
-\State $R \gets$ Cholesky factor of $H = R^T R$
-\State $J \gets R^{-T} H' R^{-1}$
-\State $V \Lambda V^T \gets$ eigendecomposition of $J$
-\State $\gamma_j \gets \lambda_j$ and $w_j \gets v_{0j}^2$ for $j = 1, \dots, n$
-\State \Return $(\gamma_j, w_j)_{j=1}^{n}$
-\end{algorithmic}
-\end{algorithm}
-
-We do the computation with 200 digits, because the moments only differ very very slightly which makes the Cholesky decomposition fail. 
-For regular floating point precision, the moments are already indistinguishable from about $n \geq 12$.
-
-Since $\E[e^{-\gamma z^2/2}] = \mathcal{L}(z^2/2)$, a rule with $n$ nodes
-$(\gamma_j, w_j)$ approximates the sigmoid by a sum of bells,
-\begin{equation}
-  \sigma(z) = \tfrac{1}{2}\, e^{z/2}\, \mathcal{L}\!\left(\tfrac{z^2}{2}\right)
-  \approx \tfrac{1}{2}\, e^{z/2} \sum_{j=1}^{n} w_j\, e^{-\gamma_j z^2/2}.
-  \label{eq:sigma-laplace}
-\end{equation}
-Gauss--PG keeps its nodes away from $\gamma = 0$, so the factor
-$e^{1/(8\gamma_j)}$ in $f$ stays small. Rules with nodes
-closer to zero can approximate the sigmoid \emph{alone} more accurately, but fail with PCPG, becasue the
-factor blows up their error. These and other rules for the outer integral are
-described in Appendix~\ref{app:pg-rules}.
-
-Combining the Gauss--PG nodes $(\gamma_j, w_j)_{j=1}^{M}$ with the Gauss--Hermite
-nodes $(t_i, \omega_i)_{i=1}^{N}$ yields the fully deterministic approximation
-\[
-  p(y \mid \xo) \approx \frac{1}{2\sqrt{\pi}} \sum_{j=1}^{M} w_j \sum_{i=1}^{N} \omega_i\, f\!\left(\sqrt{2\gamma_j}\,t_i, \gamma_j\right).
-\]
-
-\subsubsection{Sign Flip}
-\label{subsec:sign-flip}
-
-Like it is somewhat visible in \ref{fig:pcpg-bells}, for $z < 0$ the bells approximate the sigmoid quite well, even a small number of bells.
-For $z > 0$ it becomes harder and for larger z, i.e. $z > 10$, the sigmoid is very close to $1$, whereas the sum of bells, no matter how many,
-tends towards $0$ eventually. So we'd have a constant error of $1$ for large $z$. More detail in (Appendix~\ref{app:large-z}).
-
-To mitigate this we use that the sigmoid is point symmetric around $(0, \tfrac{1}{2})$:
-\[
-  \sigma(-z) = \frac{1}{1 + e^{z}} = \frac{e^{-z}}{e^{-z} + 1} = 1 - \sigma(z).
-\]
-
-For $z > 0$ we can therefore compute $1 - \hat\sigma(-z)$ instead of $\hat\sigma(z)$.
-Both use the same nodes and the same approximation of $\mathcal{L}(z^2/2)$. The error
-at $z$ becomes the error at $-z$. In practice this reduces the error over $|z| \leq 30$ of
-Gauss--PG with 20 nodes from about $1$ to $6 \cdot 10^{-7}$.
-
-The symmetry can be used for the whole expectation as well,
-\[
-  \E\bigl[\sigma(w^T x) \mid \xo\bigr] = 1 - \E\bigl[\sigma(-w^T x) \mid \xo\bigr],
-\]
-which means the estimator can run with $-w$ and return one minus the result. 
-
-Since $z = w^T x$, with some $x$ missing, is random, wether to flip is decided by the sign of
-the expected value $\E[w^T x \mid \xo] = w_o^T \xo + w_m^T \E[\xm \mid \xo]$. We do
-this for every point individually.
-
-Since the expectation $\E[\xm \mid \xo]$ is available in closed form for GMMs and PCs, we can compute it efficiently and it doesn't 
-add much additional cost.
+The method needs $K$ evaluations of the characteristic function per point. All of them are at multiples $s_k w_m$ of the same
+vector $w_m$, so they can be done in one batched pass through the density model.
 
 \section{The Characteristic Function of the Density Model}
 \label{sec:density-cf}
 
-The only place where the density model is used in PCPG is the conditional
-characteristic function $\phi_{\xm \mid \xo}$. In this section we describe how to compute it for the two
+The only places where the density model is used are the conditional
+characteristic function $\phi_{\xm \mid \xo}$, and the mean and variance of $z$ for the step size. In this section we describe how to compute them for the two
 density models we use, GMMs and PCs.
 
 \subsection{Gaussian Mixture Models}
@@ -341,7 +253,7 @@ mixture is just a mixture of the characteristic functions of its components,
   \phi_X(s) = \sum_{k=1}^{K} \pi_k\, \exp \left( i s^T \mu_k - \tfrac{1}{2} s^T \Sigma_k s \right).
 \]
 
-However, in PCPG we need the conditional characteristic function $\phi_{\xm \mid \xo}$, so the
+However, we need the conditional characteristic function $\phi_{\xm \mid \xo}$, so the
 characteristic function of the missing features given the observed ones. To get it, we
 first need the conditional density $p(\xm \mid \xo)$, which with diagonal covariances, is the mixture:
 \[
@@ -362,8 +274,8 @@ The conditional characteristic function is then just the characteristic function
   \phi_{\xm \mid \xo}(s) = \sum_{k=1}^{K} \tilde{\pi}_k(\xo) \, \exp \left( i s^T \mu_k^m - \tfrac{1}{2} s^T \Sigma_k^m s \right).
 \]
 
-We compute this for every point $\xo$ once and reuse it for all frequencies $s$, since 
-the responsibilities $\tilde{\pi}_k(\xo)$ only depend on the observed features.
+We compute the responsibilities for every point $\xo$ once and reuse them for all frequencies $s$, since
+they only depend on the observed features.
 This is shown in algorithm~\ref{alg:gmm-cf}.
 
 \begin{algorithm}[H]
@@ -381,90 +293,136 @@ This is shown in algorithm~\ref{alg:gmm-cf}.
 \end{algorithmic}
 \end{algorithm}
 
+Within component $k$, $z$ is Gaussian with mean $m_k$ and variance $v_k$ (Section~\ref{subsec:gmm-direct}), so the mean and variance of $z$ are
+\[
+  \mu_z = \sum_{k=1}^{K} \tilde{\pi}_k(\xo)\, m_k, \qquad \sigma_z^2 = \sum_{k=1}^{K} \tilde{\pi}_k(\xo) \left( v_k + (m_k - \mu_z)^2 \right).
+\]
+The variance is the variance within the components plus the spread of their means.
+
 \subsection{Probabilistic Circuits}
 \label{subsec:pc-cf}
 
-How to compute the CF of a general PC.
+For a PC, the characteristic function can be computed in the same way as the marginal likelihood \cite{yu2023characteristic}.
+The function inside the expectation splits into one factor per feature, $\exp(i s^T x) = \prod_{d} \exp(i s_d x_d)$.
+In a smooth and decomposable circuit, the expectation of such a product can be moved down to the leaves:
+a sum node takes the weighted sum of its children, and a product node the product of its children, which
+have disjoint scopes. So we set the leaf of every missing feature $d$ to the characteristic function of the leaf at $s_d$,
+the leaf of every observed feature to its density at $x_d$, and evaluate the circuit bottom-up. This gives
+$\int \exp(i s^T \xm)\, p(\xo, \xm)\, \mathrm{d}\xm = p(\xo)\, \phi_{\xm \mid \xo}(s)$, and dividing by $p(\xo)$ gives $\phi_{\xm \mid \xo}(s)$.
+For Gaussian leaves, the leaf value is $\exp(i s_d \mu_d - \frac{1}{2} s_d^2 \sigma_d^2)$, and for categorical leaves it is $\sum_v p(x_d = v)\, e^{i s_d v}$.
 
-PC frameworks usually don't provide a method for it. So we need to implement it ourselves. 
+The values are complex, and the products over many leaves can underflow, so in practice the circuit is
+evaluated in the log domain with a complex logarithm.
 
-The framework SPFlow already offers conditional sampling so we would only need to implement the CF. 
-The framework cirkit doesn't have either. 
+The mean and the variance of $z$ are computed with the same kind of pass. Every node $n$ carries three numbers: its value $P_n$ as in the
+marginal likelihood, and the first and second moments $M_n = \int z_n\, p_n$ and $Q_n = \int z_n^2\, p_n$ of the part $z_n$ of $z$ over its scope.
+A sum node takes the weighted sums of the three numbers of its children. For a product node with children $a$ and $b$, $z_n = z_a + z_b$ with independent parts, so
+\[
+  P_n = P_a P_b, \qquad M_n = M_a P_b + P_a M_b, \qquad Q_n = Q_a P_b + 2 M_a M_b + P_a Q_b.
+\]
+An observed leaf $d$ has $P = p(x_d)$, $M = w_d x_d\, p(x_d)$ and $Q = w_d^2 x_d^2\, p(x_d)$, and a missing Gaussian leaf has $P = 1$, $M = w_d \mu_d$ and
+$Q = w_d^2 (\sigma_d^2 + \mu_d^2)$. At the root, $\mu_z = M / P$ and $\sigma_z^2 = Q / P - \mu_z^2$.
 
-The PC would also need to be able to give the means of z for the flip.
+PC frameworks usually don't provide a method for it. So we need to implement it ourselves.
+
+The framework SPFlow already offers conditional sampling so we would only need to implement the CF and the moments.
+The framework cirkit doesn't have either.
 
 We could also implement a very simple PC from scratch?
 
-\section{PCPG Algorithm}
+\section{Algorithm}
 \label{sec:algorithm}
 
-Putting everything together leads to the PCPG algorithm shown in Algorithm~\ref{alg:pcpg}. 
-For one test point, it decides the sign flip, evaluates the density's conditional characteristic function
-at the frequencies given by the nodes, and returns the weighted sum of $f$. 
-The Gauss--Hermite and Gauss--PG nodes depend
-neither on the point nor on the classifier or the density model, so they are
-computed once beforehand. The density model is only used through its characteristic function, 
-so the algorithm works for every model that can expose one.
+Putting everything together leads to the CFI algorithm shown in Algorithm~\ref{alg:cfi}.
+For one test point, it chooses the step from the mean and variance of $z$, evaluates the density's conditional
+characteristic function at the $K$ frequencies, and returns the trapezoid sum. The density model is only used
+through its characteristic function and the first two moments of $z$, so the algorithm works for every model that can expose them.
 
 \begin{algorithm}[H]
-\caption{PCPG}
-\label{alg:pcpg}
+\caption{CFI}
+\label{alg:cfi}
 \begin{algorithmic}[1]
-\Require LR weights $w$, partial observation $\xo$, density model with conditional characteristic function $\phi_{\xm \mid \xo}$, Gauss--PG nodes and weights $(\gamma_j, w_j)_{j=1}^{M}$, Gauss--Hermite nodes and weights $(t_i, \omega_i)_{i=1}^{N}$
+\Require LR weights $w$, partial observation $\xo$, density model with conditional characteristic function $\phi_{\xm \mid \xo}$ and the moments $\E[z \mid \xo]$, $\mathrm{Var}[z \mid \xo]$, number of frequencies $K$, $S = 12$
 \State Split $w = (w_o, w_m)$ by the observed/missing mask
-\State $\mathrm{flip} \gets \E[w^T x \mid \xo] > 0$
-\If{$\mathrm{flip}$}
-  \State $w_o \gets -w_o$, \quad $w_m \gets -w_m$
-\EndIf
-\State $u_{ij} \gets \sqrt{2\gamma_j}\, t_i$ for all $i, j$
-\State $\phi_{ij} \gets \phi_{\xm \mid \xo}(-u_{ij}\, w_m)$ for all $i, j$
-\State $S \gets \sum_{j=1}^{M} \sum_{i=1}^{N} w_j\, \omega_i \exp \left(\dfrac{1}{8\gamma_j}\right) \exp\left(i u_{ij} \left(\dfrac{1}{2\gamma_j} - w_o^T \xo\right)\right) \phi_{ij}$
-\State $p \gets \dfrac{1}{2\sqrt{\pi}}\, \mathrm{Re}(S)$
-\State \Return $1 - p$ if $\mathrm{flip}$, else $p$
+\State $\mu_z \gets \E[w^T x \mid \xo]$, \quad $\sigma_z \gets \sqrt{\mathrm{Var}[w^T x \mid \xo]}$
+\State $h \gets \min \left( \pi / (|\mu_z| + 6 \sigma_z + 1),\, S / K \right)$
+\State $s_k \gets k h$ for $k = 1, \dots, K$
+\State $\phi_k \gets \exp(i s_k\, w_o^T \xo)\, \phi_{\xm \mid \xo}(s_k\, w_m)$ for all $k$
+\State $p \gets \dfrac{1}{2} + h \left( \dfrac{\mu_z}{2\pi} + \sum_{k=1}^{K} \dfrac{\mathrm{Im}(\phi_k)}{\sinh(\pi s_k)} \right)$
+\State \Return $p$
 \end{algorithmic}
 \end{algorithm}
 
-One can come up with other variants of PCPG by changing how the two
-expectations are computed. The inner, the outer, or both could be sampled
-instead. For both also different quadrature rules could be used. 
-Appendix~\ref{app:variants} lists different combinations. In the rest of this thesis, \emph{PCPG} refers to
-Algorithm~\ref{alg:pcpg}, and \emph{PCPG-MC} to the variant that samples both
-expectations.
 
-\section{Training with PCPG}
-\label{sec:training-pcpg}
+\section{PCLR: Training the Density and the Classifier Jointly}
+\label{sec:pclr}
 
 Up to now, the classifier $w$ was trained on complete data and features were only
 missing at test time. However, in practice, training data could also have missing features.
 
-In this section we show how PCPG can also be used in training.
+In this section we treat the density model and the logistic regression as one model of the features and the label together, and train both
+jointly on the incomplete training data. We call this joint model \emph{PCLR}.
 
-\subsection{Fitting the density}
+\subsection{The Joint Model}
 
-The density model $p(x)$ is fit first. Here PCPG is not needed, and in general 
-this is a standard and well-established procedure. 
-The density is fit, by maximizing the marginal likelihood of the observed features $\xo$:
-
+PCLR models the features with the density $p_\theta(x)$, with parameters $\theta$, and the label given the features with the logistic regression,
 \[
-  p(\xo) = \int p( x = (\xo, \xm)) \, \mathrm{d}\xm.
+  p_{\theta, w}(x, y) = p_\theta(x)\, p_w(y \mid x), \qquad p_w(y = 1 \mid x) = \sigma(w^T x).
 \]
 
-In general this integral is hard, but can be computed tractably for a GMM or a PC. 
+For an incomplete training point we only observe $\xo$ and $y$, so its likelihood is the joint density with the missing features integrated out:
+\begin{align*}
+  p_{\theta, w}(\xo, y)
+  &= \int p_\theta(\xo, \xm)\, p_w(y \mid \xo, \xm) \, \mathrm{d}\xm \\
+  &= p_\theta(\xo) \int p_\theta(\xm \mid \xo)\, p_w(y \mid \xo, \xm) \, \mathrm{d}\xm \\
+  &= p_\theta(\xo)\, \E_{p_\theta(\xm \mid \xo)} \left[ p_w(y \mid x) \right] \\
+  &= p_\theta(\xo)\, p_{\theta, w}(y \mid \xo).
+\end{align*}
+
+So the likelihood of a point splits into two terms: the marginal likelihood $p_\theta(\xo)$ of the observed features, and
+the expected prediction $p_{\theta, w}(y \mid \xo)$ of its label, which is exactly what we compute with Algorithm~\ref{alg:cfi}.
+The density appears in both. It does not only have to explain the features, but also the missing features have to be such that the
+classifier can predict the label from them.
+
+\subsection{The Objective}
+
+We fit $\theta$ and $w$ together by minimizing the negative log-likelihood over all training points, with a weight $\lambda$ for the label term
+and an $L_2$ penalty on $w$:
+\begin{equation}
+  J(\theta, w) = -\frac{1}{n_\mathrm{train}} \sum_{n=1}^{n_\mathrm{train}} \left( \log p_\theta(\xo_n) + \lambda \log p_{\theta, w}(y_n \mid \xo_n) \right) + \frac{1}{2 C n_\mathrm{train}} \lVert w \rVert^2 .
+  \label{eq:pclr}
+\end{equation}
+
+For $\lambda = 1$ this is the maximum likelihood estimate of the joint model. The density term sums over all observed features, while the label
+term is only one number per point, so with many features the density term dominates. A larger $\lambda$ gives the label more weight, and
+trades a little density quality for a better classifier.
+
+The penalty is the $L_2$ penalty of scikit-learn's logistic regression, with $C = 1$.
+It keeps $w$ from growing without bound and makes the optimum unique.
+
+\subsection{The Density Term}
+
+The marginal likelihood of the observed features is
+\[
+  p_\theta(\xo) = \int p_\theta( x = (\xo, \xm)) \, \mathrm{d}\xm.
+\]
+
+In general this integral is hard, but can be computed tractably for a GMM or a PC.
 
 For a GMM, we can see this one component $k$ at a time. A component is a
 Gaussian $\mathcal{N}(\mu_k, \Sigma_k)$, and since our GMM uses diagonal covariances
-$\Sigma_k = \mathrm{diag}(\sigma_{k1}^2, \dots, \sigma_{kD}^2)$, 
+$\Sigma_k = \mathrm{diag}(\sigma_{k1}^2, \dots, \sigma_{kD}^2)$,
 every feature $d$, within a component, has its own one-dimensional Gaussian with
-mean $\mu_{kd}$ and variance $\sigma_{kd}^2$. This means that the features are independent of each other 
-within a component. Since the density of independent variables is the product of their individual densities, 
+mean $\mu_{kd}$ and variance $\sigma_{kd}^2$. This means that the features are independent of each other
+within a component. Since the density of independent variables is the product of their individual densities,
 the density of a point x in component k can be written as
 \[
   p(x \mid k) = \prod_{d=1}^{D} \mathcal{N}(x_d; \mu_{kd}, \sigma_{kd}^2).
 \]
 
 Now when a feature $d$ is missing, integrating over $x_d$ only touches its own
-term $\mathcal{N}(x_d; \mu_{kd}, \sigma_{kd}^2)$. 
-Because that term is a density, it integrates to one and it can simply be dropped out of the product. 
+term $\mathcal{N}(x_d; \mu_{kd}, \sigma_{kd}^2)$.
+Because that term is a density, it integrates to one and it can simply be dropped out of the product.
 Then only the terms of the observed features remain,
 \[
   p(\xo) = \sum_{k=1}^{K} \pi_k \prod_{d \in \mathrm{obs}} \mathcal{N}(x_d; \mu_{kd}, \sigma_{kd}^2).
@@ -476,78 +434,79 @@ missing feature can be moved down to its leaves. There the
 leaves of the missing features are simply set to one and the circuit is evaluated as
 usual.
 
-$p(x)$ is fit once and kept fixed for the remainder of the training process.
+\subsection{The Label Term}
 
-\subsection{Fitting the classifier}
-
-When we already have a way to predict with missing data at test time, 
-training the classifier with missing data is actually quite simple.
-We just use the same prediction method, that we use at test time, 
-namely the expected prediction over all plausible values of the missing features:
-
+The label term is the expected prediction of the logistic regression,
 \[
-  p_n = p(y_n = 1 \mid \xo_n) = \E_{p(\xm \mid \xo_n)} \left[ \sigma(w^T x) \right].
+  p_n = p_{\theta, w}(y_n = 1 \mid \xo_n) = \E_{p_\theta(\xm \mid \xo_n)} \left[ \sigma(w^T x) \right],
 \]
-
-As in an standard logistic regression, $w$ should make true labels as likely
-as possible. This means we want to maximize the likelihood of true labels, i.e. the probability the classifier assigns to them, or 
-equivalently, minimize the negative log-likelihood. This leads to the following loss function:
-
-\begin{equation}
-  J(w) = -\frac{1}{n_\mathrm{train}} \sum_{n=1}^{n_\mathrm{train}} \log p(y_n \mid \xo_n) + \frac{1}{2 C n_\mathrm{train}} \lVert w \rVert^2 .
-  \label{eq:marginal-likelihood}
-\end{equation}
-
-Here $p(y_n \mid \xo_n)$ means the probability of the true label of point $n$: it is
+which we compute with Algorithm~\ref{alg:cfi}. Here $p_{\theta, w}(y_n \mid \xo_n)$ means the probability of the true label of point $n$: it is
 $p_n$ if $y_n = 1$ and $1 - p_n$ if $y_n = 0$:
 \[
-  \log p(y_n \mid \xo_n) = y_n \log p_n + (1 - y_n) \log (1 - p_n).
+  \log p_{\theta, w}(y_n \mid \xo_n) = y_n \log p_n + (1 - y_n) \log (1 - p_n).
 \]
-This is the familiar binary cross-entropy.
+This is the familiar binary cross-entropy. Since the computed expected predictions can lie slightly outside $[0, 1]$ due to the numerical error,
+we clamp them to $[\varepsilon, 1 - \varepsilon]$.
 
-The second term here is the $L_2$ penalty of scikit-learn's logistic regression, with $C = 1$. 
-It keeps $w$ from growing without bound and makes the optimum unique. 
+\subsection{Gradients}
 
-As mentioned we compute the expected prediction $p(y_n \mid \xo_n)$ with PCPG,
-and use automatic differentiation to compute the gradient $\nabla_w J(w)$ of the loss function. Then 
-we can use any gradient-based optimizer, like Adam, and find the optimal $w$.
+Both terms are differentiable in all parameters. The density term only depends on $\theta$. The label term depends on $w$ through
+$z = w^T x$, and on $\theta$ through the characteristic function $\phi_{\xm \mid \xo}$ of the density, which is a smooth function of the
+means, variances and weights of the GMM or the PC. The step size $h$ needs no gradient (Section~\ref{sec:cfi-integral}).
+So automatic differentiation gives the gradients $\nabla_\theta J$ and $\nabla_w J$, and we can use any gradient-based optimizer, like Adam.
+
+This is where the deterministic computation of the expected prediction pays off. With Monte Carlo, the samples of the missing features
+would have to be differentiated with respect to $\theta$, which is not possible directly, since the choice of a mixture component is discrete.
+
+\subsection{Fixed Density}
+\label{subsec:fixed-density}
+
+A simpler variant fits the density first, on the density term alone, and keeps it fixed. Then only the label term remains to be
+minimized over $w$:
+\begin{equation}
+  J(w) = -\frac{1}{n_\mathrm{train}} \sum_{n=1}^{n_\mathrm{train}} \log p_\theta(y_n \mid \xo_n) + \frac{1}{2 C n_\mathrm{train}} \lVert w \rVert^2 .
+  \label{eq:marginal-likelihood}
+\end{equation}
+This is a standard logistic regression, with the prediction replaced by the expected prediction. It is cheaper, and it is also a good starting point for the joint training.
 
 \subsection{Algorithm}
 \label{subsec:training-algorithm}
 
-Algorithm~\ref{alg:training} puts both stages together. First, we fit the density model $p_\theta(x)$, then the classifier starts at
-$w = 0$ and is trained by Adam on minibatches. Since the expected predictions of PCPG
-can lie slightly outside $[0, 1]$ due to the quadrature error, we
-clamp them to $[\varepsilon, 1 - \varepsilon]$.
+Algorithm~\ref{alg:training} puts everything together. The density is initialized by fitting it on the density term alone, so that the
+expected predictions are meaningful from the start, and the classifier starts at $w = 0$. Then both are trained by Adam on minibatches.
 
 \begin{algorithm}[H]
-\caption{Training a logistic regression with PCPG}
+\caption{Training PCLR}
 \label{alg:training}
 \begin{algorithmic}[1]
-\Require incomplete training points $(\xo_n, y_n)_{n=1}^{n_\mathrm{train}}$, PCPG nodes and weights, penalty $C$, epochs $E$, batch size $B$, learning rate $\eta$, $\varepsilon$
-\State Fit the density model: $\theta \gets \arg\max_\theta \sum_{n} \log p_\theta(\xo_n)$
+\Require incomplete training points $(\xo_n, y_n)_{n=1}^{n_\mathrm{train}}$, number of frequencies $K$, weight $\lambda$, penalty $C$, epochs $E$, batch size $B$, learning rate $\eta$, $\varepsilon$
+\State Initialize the density model: $\theta \gets \arg\max_\theta \sum_{n} \log p_\theta(\xo_n)$
 \State $w \gets 0$
 \For{$e = 1, \dots, E$}
   \For{every minibatch $\mathcal{B}$ of $B$ training points, in random order}
     \For{$n \in \mathcal{B}$}
-      \State $p_n \gets$ PCPG$(w, \xo_n)$ with Algorithm~\ref{alg:pcpg}, clamped to $[\varepsilon, 1 - \varepsilon]$
+      \State $\ell_n \gets \log p_\theta(\xo_n)$
+      \State $p_n \gets$ the expected prediction of $\xo_n$ with Algorithm~\ref{alg:cfi}, clamped to $[\varepsilon, 1 - \varepsilon]$
     \EndFor
-    \State $J \gets -\frac{1}{B} \sum_{n \in \mathcal{B}} \left( y_n \log p_n + (1 - y_n) \log (1 - p_n) \right) + \frac{1}{2 C n_\mathrm{train}} \lVert w \rVert^2$
-    \State $g \gets \nabla_w J$
-    \State $w \gets \mathrm{Adam}(w, g, \eta)$
+    \State $J \gets -\frac{1}{B} \sum_{n \in \mathcal{B}} \left( \ell_n + \lambda \left( y_n \log p_n + (1 - y_n) \log (1 - p_n) \right) \right) + \frac{1}{2 C n_\mathrm{train}} \lVert w \rVert^2$
+    \State $(\theta, w) \gets \mathrm{Adam}\left((\theta, w), (\nabla_\theta J, \nabla_w J), \eta\right)$
   \EndFor
 \EndFor
-\State \Return $w$ and $p_\theta$
+\State \Return $\theta$ and $w$
 \end{algorithmic}
 \end{algorithm}
+
+At test time, PCLR predicts with the same expected prediction, with the trained $\theta$ and $w$. So training and prediction use the same
+model, and a missing feature is handled the same way in both.
+
+% TODO: evaluate the joint training in the experiments, and the effect of lambda
 
 \section{A Direct Route for Gaussian Mixtures}
 \label{subsec:gmm-direct}
 
-Although we use GMMs as density models for PCPG throughout, for a GMM the two
-tricks are actually not needed: the expected prediction can be computed directly.
-We include them anyway, to demonstrate the general approach in a simpler setting and to be 
-able to compare the results of PCPG with a reference.
+Although we use GMMs as density models throughout, for a GMM the expected prediction
+can also be computed directly, without the characteristic function. We use it as a reference,
+to compare the results of the other methods with.
 
 In this section we show how the expected prediction can be computed directly for a GMM.
 
@@ -592,7 +551,7 @@ The mean of a sum is the sum of the means, and the mean of $w_d x_d$ is
 $w_d \mu_{kd}$. So the mean of $z$ is $z$ with every missing feature replaced by
 its mean,
 \[
-  m_k = \E[z \mid k] = c + \sum_{d \in \mathrm{mis}} w_d\, \E[x_d \mid k] = w_o^T \xo + \sum_{d \in \mathrm{mis}} w_d\, \mu_{kd}.
+  m_k = \E[z \mid k] = w_o^T \xo + \sum_{d \in \mathrm{mis}} w_d\, \E[x_d \mid k] = w_o^T \xo + \sum_{d \in \mathrm{mis}} w_d\, \mu_{kd}.
 \]
 
 Similarly, the variance of their sum is the sum of their
@@ -619,47 +578,11 @@ The expected prediction then splits into one average per component,
 
 Each of these averages is a one-dimensional integral of the sigmoid against a
 Gaussian. While it doesn't have a closed form solution, it can be very accurately computed using 
-numerical integration, like Gauss-Hermite quadrature (Section~\ref{subsec:gauss-hermite}) or adaptive quadrature using \texttt{scipy.integrate.quad}.
+numerical integration, like Gauss-Hermite quadrature (Section~\ref{subsec:bg-gauss-hermite}) or adaptive quadrature using \texttt{scipy.integrate.quad}.
 
 \[
   p(y \mid \xo) \approx \frac{1}{\sqrt{\pi}} \sum_{k=1}^{K} \tilde{\pi}_k(\xo) \sum_{i=1}^{N} \omega_i\, \sigma\!\left( m_k + \sqrt{2 v_k}\, t_i \right).
 \]
-
-\subsection{The Inner Expectation in Closed Form}
-\label{subsec:gmm-exact-inner}
-
-The mixture $p(z \mid \xo)$ can also be used inside PCPG. After the first trick and
-swapping the two expectations, the expected prediction is
-\[
-  p(y \mid \xo) = \frac{1}{2} \E_{\gamma \sim \PG(1,0)} \E_{z \sim p(z \mid \xo)} \left[ \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right) \right].
-\]
-PCPG computes the inner expectation over $z$ with the second trick and Gauss--Hermite
-quadrature. For a GMM it can be computed exactly instead. Within component $k$, the
-bell $\exp(\frac{1}{2}z - \frac{1}{2}\gamma z^2)$ times the density of
-$\mathcal{N}(m_k, v_k)$ is again an unnormalised Gaussian, so the integral can be
-solved by completing the square, just as in the second trick. This gives
-(see Appendix~\ref{app:gmm-exact-inner} for the derivation)
-\[
-  g_k(\gamma) := \E_{z \sim \mathcal{N}(m_k, v_k)} \left[ \exp \left(\frac{1}{2}z - \frac{1}{2}\gamma z^2 \right) \right] = \frac{1}{\sqrt{1 + \gamma v_k}} \exp \left(\frac{v_k + 4m_k - 4\gamma m_k^2}{8(1 + \gamma v_k)}\right).
-\]
-
-The inner expectation over the whole mixture is the weighted sum of the components,
-and only the outer expectation over $\gamma$ is left. Computing it with the Gauss--PG
-nodes and weights $(\gamma_j, w_j)_{j=1}^{M}$ of
-Section~\ref{subsec:pg-quadrature} gives
-\begin{align*}
-  p(y \mid \xo)
-  &= \frac{1}{2} \E_{\gamma \sim \PG(1,0)} \left[ \sum_{k=1}^{K} \tilde{\pi}_k(\xo)\, g_k(\gamma) \right] \\
-  &\approx \frac{1}{2} \sum_{j=1}^{M} w_j \sum_{k=1}^{K} \tilde{\pi}_k(\xo)\, g_k(\gamma_j).
-\end{align*}
-The sign flip of Section~\ref{subsec:sign-flip} carries over unchanged: replacing $w$
-by $-w$ only changes the sign of every $m_k$, and leaves $v_k$ as it is.
-
-As an estimator this is not useful on its own, since the one-dimensional integrals
-of the previous subsection are simpler and exact. But it is PCPG with a perfect inner
-quadrature: the only error left is the error of the Gauss--PG rule. Comparing it with
-PCPG therefore separates the error of the outer quadrature from the error of the
-inner one.
 
 \subsection{Why This Does Not Work for General PCs}
 

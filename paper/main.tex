@@ -1,0 +1,120 @@
+%%%%%%%% ICML 2026 PAPER, built from template/example_paper.tex %%%%%%%%%%
+% The template is for ICML 2026. A newer version will come out: migrate the
+% preamble, the style files and the .bst then (see PAPER.md).
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2026} with \usepackage[nohyperref]{icml2026} above.
+\usepackage{hyperref}
+
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage{icml2026}
+
+% For preprint, use
+% \usepackage[preprint]{icml2026}
+
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+
+
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Todonotes is useful during development; simply uncomment the next line
+%    and comment out the line below the next line to turn off comments
+%\usepackage[textsize=tiny]{todonotes}
+\usepackage[disable,textsize=tiny]{todonotes}
+
+% notation
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\PG}{\mathrm{PG}}
+\newcommand{\xo}{x^o}
+\newcommand{\xm}{x^m}
+\renewcommand{\vec}[1]{\textbf{#1}}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\icmltitlerunning{Tractable Expected Predictions of Logistic Regression under Probabilistic Circuits}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Tractable Expected Predictions of Logistic Regression \\
+    under Probabilistic Circuits}
+
+  % author information is removed automatically unless [accepted] is set
+  \begin{icmlauthorlist}
+    \icmlauthor{Leon Tiefenb\"ock}{tug}
+  \end{icmlauthorlist}
+
+  \icmlaffiliation{tug}{Graz University of Technology, Graz, Austria}
+
+  \icmlcorrespondingauthor{Leon Tiefenb\"ock}{leon.tiefenboeck@gmail.com}
+
+  \icmlkeywords{Probabilistic Circuits, Logistic Regression, Missing Data, P\'olya-Gamma, Characteristic Function}
+
+  \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+  Probabilistic circuits (PCs) compute marginals and conditionals exactly, which makes them a natural model for data with missing features, yet they are rarely combined with a logistic regression, because the sigmoid destroys their tractability.
+  We show that the expected prediction of a logistic regression under a PC, marginalised over the missing features, can be computed deterministically and differentiably.
+  Rewriting the sigmoid with the Pólya--Gamma and Hubbard--Stratonovich identities reduces it to the conditional characteristic function of the PC, which a smooth and decomposable circuit computes in one pass, and to two one-dimensional integrals, for which we construct a Gaussian quadrature rule for the Pólya--Gamma distribution.
+  The PC and the logistic regression thus form one joint model with separate parameters, in which the classifier is trained discriminatively on incomplete data.
+  At the same budget our estimator is about four orders of magnitude more accurate than Monte Carlo and trains the same classifier as the exact expectation.
+\end{abstract}
+
+\input{body}
+
+\section*{Software and Data}
+
+The code will be made available.
+
+% Acknowledgements only in the accepted version.
+% \section*{Acknowledgements}
+
+\section*{Impact Statement}
+
+This paper presents work whose goal is to advance the field of Machine
+Learning. There are many potential societal consequences of our work, none
+which we feel must be specifically highlighted here.
+
+\bibliography{references}
+\bibliographystyle{icml2026}
+
+\end{document}
