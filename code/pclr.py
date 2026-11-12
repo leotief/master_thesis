@@ -7,25 +7,25 @@
 # with nan at the missing features, and returns a tensor with gradients through w and the
 # density
 
+import copy
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class PCLR(nn.Module):
-    # density is an already fit density model, it is trained further together with w
-    # (or kept as it is, train_density). n_freq are cfi's frequencies, lam the weight of
-    # the label term, C the l2 penalty (as in sklearn), eps the clamp of the predictions in
-    # the loss, max_iter the iterations of l-bfgs
-    def __init__(self, density, n_features, n_freq=100, lam=1.0, C=1.0, eps=1e-6, train_density=True, max_iter=1000):
+    # n_freq are cfi's frequencies, lam the weight of the label term, C the l2 penalty (as
+    # in sklearn), eps the clamp of the predictions in the loss, train_density whether the
+    # density is trained together with w or kept as it is, max_iter the iterations of
+    # l-bfgs, start where the trained density starts: an untrained one ("untrained", a gmm
+    # of the same size) or the fitted density given to fit ("fitted"). with the density
+    # fixed it is always the fitted one
+    def __init__(self, n_freq=100, lam=1.0, C=1.0, eps=1e-6, train_density=True, max_iter=1000, start="untrained"):
         super().__init__()
-        self.density = density
-        for parameter in self.density.parameters():
-            parameter.requires_grad_(True)
-        self.w = nn.Parameter(torch.zeros(n_features, device=density.device))
         self.n_freq = n_freq
         self.lam, self.C, self.eps = lam, C, eps
-        self.train_density, self.max_iter = train_density, max_iter
+        self.train_density, self.max_iter, self.start = train_density, max_iter, start
 
     # log-density of the observed features
     def log_density(self, x_partial):
@@ -51,8 +51,18 @@ class PCLR(nn.Module):
 
     # the density and w jointly, or only w with the density kept as it is (train_density),
     # by l-bfgs on all training points at once until it converges, like sklearn for a
-    # logistic regression. the objective is deterministic, so no minibatches are needed
-    def fit(self, x_partial, y):
+    # logistic regression. the objective is deterministic, so no minibatches are needed.
+    # density is the fitted density: pclr trains a new untrained gmm of the same size, or its
+    # own copy of the fitted one (start "fitted", or the density fixed). w starts at 0
+    def fit(self, x_partial, y, density):
+        if self.start == "untrained" and self.train_density:
+            self.density = type(density).start(x_partial, density.K, density.device)
+        else:
+            self.density = copy.deepcopy(density)
+        for parameter in self.density.parameters():
+            parameter.requires_grad_(True)
+        self.w = nn.Parameter(torch.zeros(x_partial.shape[1], device=x_partial.device))
+
         parameters = list(self.parameters()) if self.train_density else [self.w]
         optimizer = torch.optim.LBFGS(parameters, max_iter=self.max_iter, tolerance_grad=1e-7, tolerance_change=1e-12,
                                       line_search_fn="strong_wolfe")

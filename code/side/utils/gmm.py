@@ -10,9 +10,14 @@
 #     to the posterior p(k | x_obs)
 # both the mc baseline (sample) and pghs / cfi (characteristic_function) use this.
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.distributions as dist
+from sklearn.cluster import KMeans
+
+# the smallest variance of a component (see variances)
+MIN_VAR = 1e-2
 
 class GMM(nn.Module):
     # pi are logits of the mixture weights (softmax is applied later), so they
@@ -33,11 +38,38 @@ class GMM(nn.Module):
         self.means = nn.Parameter(means_init.clone().detach())
         self.log_vars = nn.Parameter(torch.zeros(K, n_features))
 
+    # a gmm with K components for the points x (nan = missing), not fit yet: started from
+    # k-means on the points with their gaps filled by the feature means, the means at the
+    # cluster centres, the variances and weights those of the clusters. starting the means at
+    # the first K points instead let one component take all points from about 64 features on
+    @staticmethod
+    def start(x, K, device):
+        filled = torch.where(torch.isnan(x), x.nanmean(dim=0), x).cpu().numpy().astype(np.float64)
+        kmeans = KMeans(K, n_init=4, random_state=0).fit(filled)
+        variances = np.stack([filled[kmeans.labels_ == k].var(axis=0) if (kmeans.labels_ == k).sum() > 1 else filled.var(axis=0)
+                              for k in range(K)])
+        weights = np.bincount(kmeans.labels_, minlength=K) / len(filled)
+        gmm = GMM(device, K=K, means_init=torch.tensor(kmeans.cluster_centers_, dtype=torch.float32), n_features=x.shape[1])
+        with torch.no_grad():
+            gmm.log_vars.copy_(torch.log(torch.tensor(variances, dtype=torch.float32).clamp_min(MIN_VAR)))
+            gmm.pi.copy_(torch.log(torch.tensor(weights, dtype=torch.float32).clamp_min(1e-6)))
+        return gmm.to(device)
+
+    # the variances of the components, (K, D), at least MIN_VAR: otherwise a component can
+    # collapse onto a value that many points share (e.g. the zeros of pima or spambase), which
+    # raises the likelihood without bound
+    def variances(self):
+        return torch.exp(self.log_vars).clamp_min(MIN_VAR)
+
     # log-likelihood log p(x_obs) for every row of x, shape (batch,)
     # works for complete rows and for rows with nan, each row can have its own pattern
     def forward(self, x):
+        return torch.logsumexp(self.log_components(x), dim=-1)
+
+    # log pi_k + log p(x_obs | k) for every row of x and component, shape (batch, K)
+    def log_components(self, x):
         weights_log = torch.log_softmax(self.pi, dim=-1)
-        variances   = torch.exp(self.log_vars) + 1e-6   # small floor so no variance collapses to 0
+        variances   = self.variances()
 
         # fill with zeros so log_prob doesn't return nan, masked out below anyway
         x_filled = x.clone()
@@ -48,8 +80,8 @@ class GMM(nn.Module):
         # setting missing dims to 0 in log space is the same as integrating them out
         log_p_feat = log_p_feat * (~torch.isnan(x)).float().unsqueeze(1)
 
-        # sum over features gives log p(x | k), then log sum_k pi_k p(x | k)
-        return torch.logsumexp(weights_log + log_p_feat.sum(dim=-1), dim=-1)
+        # sum over features gives log p(x | k)
+        return weights_log + log_p_feat.sum(dim=-1)
 
     # the conditional methods below work on one point x_obs of shape (D,) or a
     # batch (B, D), each row with its own missing pattern (nan = missing). as in
@@ -66,7 +98,7 @@ class GMM(nn.Module):
         obs_mask = ~torch.isnan(x_obs)
         # likelihood of the observed part under each component, the missing
         # features add 0 in log space
-        stds     = torch.sqrt(torch.exp(self.log_vars) + 1e-6)
+        stds     = torch.sqrt(self.variances())
         log_p    = dist.Normal(self.means, stds).log_prob(torch.nan_to_num(x_obs).unsqueeze(-2))   # (..., K, D)
         log_lik  = (log_p * obs_mask.unsqueeze(-2)).sum(dim=-1)
 
@@ -88,7 +120,7 @@ class GMM(nn.Module):
                 indices = indices.T                  # (B, num_samples)
 
             means = self.means[indices]
-            stds  = torch.sqrt(torch.exp(self.log_vars[indices]) + 1e-6)
+            stds  = torch.sqrt(self.variances()[indices])
             eps   = torch.randn_like(means)
             samples = means + eps * stds
 
@@ -109,7 +141,7 @@ class GMM(nn.Module):
     # returns complex values of shape (N,) or (B, N)
     def characteristic_function(self, t, x_obs=None):
         weights   = self._component_weights(x_obs)
-        variances = torch.exp(self.log_vars) + 1e-6
+        variances = self.variances()
         # only the missing dims matter, without x_obs this is the cf of the full p(x)
         if x_obs is not None:
             t = t * torch.isnan(x_obs).unsqueeze(-2)
@@ -134,7 +166,7 @@ class GMM(nn.Module):
         mis_mask = torch.isnan(x_obs)
         w_mis    = w * mis_mask
 
-        variances = torch.exp(self.log_vars) + 1e-6
+        variances = self.variances()
         m = (torch.nan_to_num(x_obs) @ w).unsqueeze(-1) + w_mis @ self.means.T
         v = w_mis**2 @ variances.T
         return weights, m, v

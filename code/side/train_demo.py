@@ -16,7 +16,7 @@ import torch.nn.functional as F
 # experiment_utils.py and pclr.py are one directory up
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import pclr
-from side.utils.baselines import monte_carlo
+from side.utils.baselines import conditional_sampling
 from side.utils.plots import plot_training_step_by_step
 from side.utils.toy import (C, EPS, N_POINTS, SEED, exact, objective, point, px, toy, w_np, w_star,
                             x_missing, x_point, y, y_np)
@@ -45,8 +45,8 @@ GRID      = 61
 # the data, the density, w* and the followed point are the ones of utils/toy.py
 # the predictions predict(w, x_partial) of cfi and mc, with their counts
 cfi     = partial(pclr.cfi, px, n_freq=N_FREQ)
-mc_few  = partial(monte_carlo, px, n_samples=MC_FEW)
-mc_same = partial(monte_carlo, px, n_samples=MC_SAME)
+mc_few  = partial(conditional_sampling, px, n_samples=MC_FEW)
+mc_same = partial(conditional_sampling, px, n_samples=MC_SAME)
 label   = int(y_np[point])
 
 

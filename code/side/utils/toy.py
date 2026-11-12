@@ -102,7 +102,7 @@ x1 = float(x_point[0])
 X2 = np.linspace(x_np[:, 1].min() - 1, x_np[:, 1].max() + 1, 600)
 with torch.no_grad():
     weight = px._component_weights(x_point).numpy()
-stds = np.sqrt(np.exp(px.log_vars.numpy()[:, 1]) + 1e-6)
+stds = np.sqrt(px.variances().numpy()[:, 1])
 line_density = (weight[:, None] * np.exp(-(X2 - means[:, None])**2 / (2 * stds[:, None]**2))
                 / np.sqrt(2 * np.pi * stds[:, None]**2)).sum(axis=0)
 line_sigmoid = 1 / (1 + np.exp(-(w_np[0] * x1 + w_np[1] * X2)))

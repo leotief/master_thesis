@@ -5,10 +5,11 @@
 # means missing, and obs_mask = ~torch.isnan(x) gives the observed features.
 # features are dropped completely at random (MCAR), independent of their value.
 #   classification  sklearn's make_classification, split into train and test
-#   hide            a copy of points with some of their features set to nan
-#   load_data       both of them for train.py and estimate.py, as tensors
-#   load_real       a real dataset (sklearn or openml), split and hidden the same way
-#   load_lr_data    data where the label comes from a logistic regression, for train.py
+#   hide            a copy of points with a fixed number of features per point set to nan
+#                   (for the single test point of the demo figures)
+#   hide_entries    a copy of points with every entry set to nan with some probability
+#   load_data       classification and hide_entries, for train.py and estimate.py, as tensors
+#   load_real       a real dataset (sklearn or openml), split, hidden by hide_entries
 #   loader          a shuffled loader over points, to fit a density model
 
 import numpy as np
@@ -19,14 +20,15 @@ from sklearn.model_selection import train_test_split
 # make_classification (gaussian clusters, balanced classes) with features
 # features, split into train and test (stratified, so both have the same class
 # balance). informative is the fraction of the features that carry the classes
-# (at least 2), the others are noise and none are redundant. None keeps
+# (at least 2), redundant the fraction that are linear combinations of those, the
+# others are noise. None keeps
 # sklearn's default: 2 informative, 2 redundant (linear combinations of those),
 # the rest noise. standardize scales every feature to mean 0 and variance 1 on
 # the training points (the informative features of make_classification have a
 # variance that grows with their number). returns x_train, x_test, y_train,
 # y_test as numpy arrays
-def classification(features, informative=None, samples=10_000, test_size=0.2, seed=42, standardize=False):
-    shape = {} if informative is None else dict(n_informative=max(2, round(informative * features)), n_redundant=0)
+def classification(features, informative=None, samples=10_000, test_size=0.2, seed=42, standardize=False, redundant=0.0):
+    shape = {} if informative is None else dict(n_informative=max(2, round(informative * features)), n_redundant=round(redundant * features))
     x, y = make_classification(n_samples=samples, n_features=features, weights=[0.5, 0.5], random_state=seed, **shape)
     x_train, x_test, y_train, y_test = train_test_split(x.astype(np.float32), y.astype(np.int64), test_size=test_size,
                                                         random_state=seed, stratify=y)
@@ -47,17 +49,28 @@ def hide(x, missing_rate, rng):
     return x
 
 
+# a copy of the points x (B, D) (numpy) with every entry set to nan independently with
+# probability missing_rate (mcar per entry): on average that fraction is missing, some
+# points miss more, some none. used by all experiments: a fixed number per point would be
+# 0 at low rates for few features
+def hide_entries(x, missing_rate, rng):
+    x = x.copy()
+    x[rng.random(x.shape) < missing_rate] = np.nan
+    return x
+
+
 # the classification data with n_features features, informative of them
-# informative and the others noise, 8000 training and 2000 test points,
-# standardized or not. the points are the same for every seed, which features
-# are hidden is not. returns the training points (complete and incomplete),
-# their labels, the test points (complete and incomplete) and their labels, as
-# tensors
-def load_data(n_features, missing_rate, informative, seed, device, standardize=True):
-    x_train, x_test, y_train, y_test = classification(n_features, informative, standardize=standardize)
+# informative and the others noise, samples points of which a fraction test_size
+# are test points (by default 8000 training and 2000 test points), standardized
+# or not, every entry hidden with probability missing_rate (hide_entries). the
+# points are the same for every seed, which features are hidden is not. returns the training points (complete and incomplete), their labels, the
+# test points (complete and incomplete) and their labels, as tensors
+def load_data(n_features, missing_rate, informative, seed, device, standardize=True, samples=10_000, test_size=0.2, redundant=0.0):
+    x_train, x_test, y_train, y_test = classification(n_features, informative, samples, test_size, standardize=standardize,
+                                                      redundant=redundant)
     rng = np.random.default_rng(seed)
-    x_missing = hide(x_train, missing_rate, rng)
-    x_test_missing = hide(x_test, missing_rate, rng)
+    x_missing = hide_entries(x_train, missing_rate, rng)
+    x_test_missing = hide_entries(x_test, missing_rate, rng)
     arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test)
     return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]
 
@@ -69,11 +82,12 @@ def loader(x, batch_size=64):
 
 # the real datasets: complete, continuous features and a binary label. name -> openml id,
 # breast cancer comes with sklearn. openml downloads once and caches in ~/scikit_learn_data
-REAL_DATASETS = {"breast cancer": None, "banknote": 1462, "spambase": 44, "magic": 1120}
+REAL_DATASETS = {"breast cancer": None, "banknote": 1462, "spambase": 44, "magic": 1120, "pima": 37,
+                 "ionosphere": 59, "phoneme": 1489, "qsar": 1494, "blood": 1464}
 
 # a real dataset, split into train and test (stratified, 20 % test) by seed, standardized
-# on the training points, and with missing_rate of the features of every point hidden.
-# returns the same six tensors as load_data
+# on the training points, and every entry hidden with probability missing_rate
+# (hide_entries). returns the same six tensors as load_data
 def load_real(name, missing_rate, seed, device):
     if REAL_DATASETS[name] is None:
         x, y = load_breast_cancer(return_X_y=True)
@@ -83,33 +97,12 @@ def load_real(name, missing_rate, seed, device):
         y = (data.target == np.unique(data.target)[1]).astype(np.int64)
     x_train, x_test, y_train, y_test = train_test_split(x.astype(np.float32), y.astype(np.int64), test_size=0.2,
                                                         random_state=seed, stratify=y)
+    # a constant feature (ionosphere has one) is only centred
     mean, std = x_train.mean(axis=0), x_train.std(axis=0)
+    std[std == 0] = 1
     x_train, x_test = (x_train - mean) / std, (x_test - mean) / std
     rng = np.random.default_rng(seed)
-    x_missing = hide(x_train, missing_rate, rng)
-    x_test_missing = hide(x_test, missing_rate, rng)
+    x_missing = hide_entries(x_train, missing_rate, rng)
+    x_test_missing = hide_entries(x_test, missing_rate, rng)
     arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test)
-    return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]
-
-
-# data where logistic regression is the right model: the features from a gmm with random
-# means and spreads, a fixed random w_true, and every label drawn with the probability
-# sigmoid(w_true^T x). w_true is scaled so that z = w_true^T x has the spread z_std, which
-# sets how separable the classes are. training and test points get missing features at
-# the same rate. returns the training points (complete and incomplete), their labels, the
-# test points (complete and incomplete), their labels and w_true, as tensors
-def load_lr_data(n_features, missing_rate, seed, device, n_train=5000, n_test=20_000, n_components=4, z_std=3.0):
-    rng = np.random.default_rng(seed)
-    means = rng.normal(0, 1.5, (n_components, n_features))
-    stds = rng.uniform(0.5, 1.5, (n_components, n_features))
-    n = n_train + n_test
-    component = rng.integers(n_components, size=n)
-    x = means[component] + stds[component] * rng.standard_normal((n, n_features))
-    w_true = rng.standard_normal(n_features)
-    w_true *= z_std / (x @ w_true).std()
-    y = (rng.uniform(size=n) < 1 / (1 + np.exp(-(x @ w_true)))).astype(np.int64)
-    x_train, x_test, y_train, y_test = x[:n_train], x[n_train:], y[:n_train], y[n_train:]
-    x_missing = hide(x_train, missing_rate, rng)
-    x_test_missing = hide(x_test, missing_rate, rng)
-    arrays = (x_train, x_missing, y_train, x_test, x_test_missing, y_test, w_true)
     return [torch.tensor(a, dtype=torch.float32, device=device) for a in arrays]

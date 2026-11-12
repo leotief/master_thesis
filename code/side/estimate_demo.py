@@ -163,7 +163,7 @@ def mc_pieces(px, w, x_obs):
         z_obs = float(w[~mis] @ x_obs[~mis])
         mis = mis.numpy()
         means = px.means.double().numpy()
-        stds = np.sqrt(np.exp(px.log_vars.double().numpy()) + 1e-6)
+        stds = np.sqrt(px.variances().double().numpy())
         w_mis = w.double().numpy()[mis]
 
     # n samples of the missing features as in GMM.sample, with their components,

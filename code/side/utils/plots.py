@@ -42,8 +42,8 @@ STYLE = {
 THESIS_FIGURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../thesis/figures")
 
 # plot(*args, path) for figures/<folder>/<name>.pdf and the same in the thesis
-def save_figure(plot, folder, name, *args):
-    for root in ("figures", THESIS_FIGURES):
+def save_figure(plot, folder, name, *args, thesis=True):
+    for root in ("figures", THESIS_FIGURES) if thesis else ("figures",):
         os.makedirs(f"{root}/{folder}", exist_ok=True)
         plot(*args, f"{root}/{folder}/{name}.pdf")
 
@@ -781,15 +781,16 @@ def _plot_mc_step_by_step(d, texts, out_path, title=None):
 
 # thesis figures of the experiments: the error (mean kl over the test points) of
 # the methods, in the line colours of the step-by-step figures (_LINE). every
-# method has one colour in every figure: cfi and pclr indigo, mc coral, the
-# conditional mean green, mean imputation the grey of p(z)
+# method has one colour in every figure: cfi and pclr indigo, conditional mean imputation
+# coral, conditional sampling green, mean imputation the grey of p(z)
 _METHOD_STYLE = {
     "Mean imputation": dict(color=_CAT["overlay"], ls=(0, (4, 2)), marker=None),
-    "MC":              dict(color=_LINE["coral"], marker="o"),
+    "Conditional sampling": dict(color=_LINE["wine"], marker="^"),
     "CFI":             dict(color=_LINE["indigo"], marker="s"),
     "PCLR":            dict(color=_LINE["indigo"], marker="s"),
-    "Conditional mean": dict(color=_LINE["green"], marker="^"),
+    "Conditional mean imputation": dict(color=_LINE["coral"], marker="o"),
     "PCLR fixed density": dict(color=_tone("indigo", 1.0), marker="s", mfc="white"),
+    "PCLR fitted start":  dict(color=_tone("indigo", 2.0), marker="D", mfc="white"),
 }
 
 def _percent(rate):
@@ -856,6 +857,15 @@ def plot_cfi_frequencies(features, rates, errors, times, n_points, out_path):
 # is the target, a pale wide butter band as every target, the methods that
 # reach it sit inside it
 
+# every model of values (name -> one value per x) in its style, in the order of values; the
+# lr on complete data, if there, as the target band
+def _models(ax, x, values):
+    for name, ys in values.items():
+        if name == "Complete data":
+            _band(ax, x, ys, _SIGMA_BAND, label=name, lw=13 * _THESIS_SCALE)
+        else:
+            _method_line(ax, x, ys, name)
+
 # the training comparison of train.py: every model trained on incomplete points and
 # tested on complete ones, against the number of features. a column per missing rate, the
 # log-loss on top and the accuracy below, every panel its own y-axis. the lr on complete
@@ -868,55 +878,29 @@ def plot_training_comparison(features, rates, results, out_path):
     for column, rate in zip(axes.T, rates):
         for ax, score in zip(column, ("log_loss", "accuracy")):
             values = results[score][rate]
-            _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
-            for name in ("Mean imputation", "Conditional mean", "PCLR fixed density", "PCLR"):
-                _method_line(ax, features, values[name], name)
+            _models(ax, features, values)
             ax.set_xscale("log")
         column[0].set_title(f"{_percent(rate)} missing")
         column[1].set_xlabel("features")
     axes[0, 0].set_ylabel("log-loss")
     axes[1, 0].set_ylabel("accuracy")
-    _top_legend(fig, axes[0, 0], ncol=5)
+    _top_legend(fig, axes[0, 0], ncol=len(results["log_loss"][rates[0]]))
     fig.savefig(out_path)
     plt.close(fig)
 
-# the convergence of the training (train.py): the relative error of w against the number
-# of training points, at one number of features and missing rate, both axes logarithmic.
-# a consistent estimate falls like a line, a biased one flattens. the lr on complete data
-# is the target band. errors: name -> one value per number of training points
+# the learning curve of train.py: the log-loss (left) and the accuracy (right) on the
+# incomplete test points against the number of training points, at one number of features
+# and missing rate (for the caption). the lr on complete data is the target band. curve: name -> score ->
+# one value per number of training points
 @styled
-def plot_convergence(n_trains, errors, n_features, rate, out_path):
-    fig, ax = plt.subplots(figsize=(0.75 * THESIS_WIDTH, 2.6), layout="constrained")
-    _band(ax, n_trains, errors["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
-    for name in ("Mean imputation", "Conditional mean", "PCLR"):
-        _method_line(ax, n_trains, errors[name], name)
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("training points")
-    ax.set_ylabel(r"relative error of $w$")
-    ax.set_title(f"{n_features} features, {_percent(rate)} missing")
-    _top_legend(fig, ax, ncol=2)
-    fig.savefig(out_path)
-    plt.close(fig)
-
-# how far the learned weights are from the true ones (train.py), the relative error
-# |w - w_true| / |w_true| against the number of features, a panel per missing rate. the lr
-# on complete data is the target band. errors: missing rate -> name -> one value per
-# number of features
-@styled
-def plot_weight_error(features, rates, errors, out_path):
-    fig, axes = plt.subplots(1, len(rates), figsize=(1.15 * THESIS_WIDTH, 2.1), layout="constrained", sharex=True,
-                             squeeze=False)
-    for ax, rate in zip(axes[0], rates):
-        values = errors[rate]
-        _band(ax, features, values["Complete data"], _SIGMA_BAND, label="Complete data", lw=13 * _THESIS_SCALE)
-        for name in ("Mean imputation", "Conditional mean", "PCLR fixed density", "PCLR"):
-            _method_line(ax, features, values[name], name)
+def plot_learning_curve(n_trains, curve, n_features, rate, out_path):
+    fig, axes = plt.subplots(1, 2, figsize=(THESIS_WIDTH, 2.3), layout="constrained", sharex=True)
+    for ax, score, label in zip(axes, ("log_loss", "accuracy"), ("log-loss", "accuracy")):
+        _models(ax, n_trains, {name: curve[name][score] for name in curve})
         ax.set_xscale("log")
-        ax.set_title(f"{_percent(rate)} missing")
-        ax.set_xlabel("features")
-    axes[0, 0].set_ylabel(r"relative error of $w$")
-    _top_legend(fig, axes[0, 0], ncol=5)
+        ax.set_xlabel("training points")
+        ax.set_title(f"{label} on incomplete test points")
+    _top_legend(fig, axes[0], ncol=len(curve))
     fig.savefig(out_path)
     plt.close(fig)
 
@@ -965,28 +949,28 @@ def _training_texts(d):
                  r"prediction. For a complete point it is just $\sigma(w^\top{}x)$, the colour at the point. "
                  r"For an incomplete point, like the one followed here (line), it is the average of $\sigma$ "
                  r"along its line, weighted by the density model $p(x_2\mid{}x_1)$ (grey)."),
-        predict_point=(rf"CFI computes this average exactly: {d['prediction_now_cfi']:.3f}. MC tries "
+        predict_point=(rf"CFI computes this average exactly: {d['prediction_now_cfi']:.3f}. Conditional sampling tries "
                        rf"{d['mc_few']} random values of $x_2$ from the density model and averages $\sigma$ at them: "
                        rf"{d['prediction_now_mc']:.3f}. Other random values would give a different number."),
         h2="Measure how wrong the predictions are: the loss",
         point_loss=(rf"The followed point has label {y}, so what counts is its probability of label {y}: "
                     rf"{right(d['prediction_now_cfi']):.3f}. Its loss is $-\log$ of that: small when the "
                     r"probability is close to 1, large when it is close to 0. "
-                    rf"With MC's estimate {mc:.3f} the loss would be {-np.log(mc):.3f}."),
+                    rf"With the estimate of sampling, {mc:.3f}, the loss would be {-np.log(mc):.3f}."),
         all_losses=(rf"The losses of all {d['n_points']} points at the current $w$. Their average is the loss "
                     rf"$L(w)={d['loss_now']:.3f}$. Training wants to make it smaller."),
         h3=r"Change $w$ a little to lower the loss, and repeat",
         landscape=(r"Training then changes $w$ a little in the direction that lowers the loss, and starts again "
                    r"with step 1 at the new $w$, again and again from $w=0$ (dots: every "
                    rf"{d['dot_every']} steps, ring: the $w$ of steps 1 and 2). CFI's predictions are exact, so it "
-                   r"walks the same path as exact training, to $w^*$. MC's are random, and $-\log$ of a random "
-                   r"prediction is too large on average, the more the longer $w$. So MC with "
+                   r"walks the same path as exact training, to $w^*$. Those of sampling are random, and $-\log$ of a random "
+                   r"prediction is too large on average, the more the longer $w$. So sampling with "
                    rf"{d['mc_few']} samples stops early (cross), with {d['mc_same']} samples it gets close."),
         gaps=(r"The loss during training, minus its lowest value. CFI keeps going down like exact training, "
-              rf"MC with {d['mc_few']} samples stops far above."),
+              rf"sampling with {d['mc_few']} samples stops far above."),
         h_result="Where training ends",
         ends=(r"The boundaries at the end of training. CFI ends on the exact one (yellow), close to the "
-              r"classifier trained on complete data, which saw all features. MC with "
+              r"classifier trained on complete data, which saw all features. Sampling with "
               rf"{d['mc_few']} samples ends with a shorter $w$ ($\|w\|={norm(d['paths_mc'][0][-1]):.2f}$ against "
               rf"{norm(d['path_cfi'][-1]):.2f}): a similar boundary, but a less sure classifier. Mean imputation, "
               r"which fills in the average of $x_2$, turns the boundary by "
@@ -1065,7 +1049,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     values = 1 / (1 + np.exp(-(w_now[0] * d["x1"] + w_now[1] * s)))
     ax.vlines(s, 0, values, color=_FILL["coral"], lw=2.5)
     ax.plot(s, values, "o", color=_LINE["coral"], ms=11, mec="white", mew=1.5, zorder=5,
-            label=rf"MC: {len(s)} random $x_2$, average {values.mean():.3f}")
+            label=rf"Sampling: {len(s)} random $x_2$, average {values.mean():.3f}")
     ax.axhline(values.mean(), color=_LINE["coral"], lw=1.8, ls=(0, (4, 2)))
     _finish(ax, "The prediction of the followed point", xlabel="the missing feature $x_2$", room=0.6)
 
@@ -1074,7 +1058,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     q = np.linspace(0.02, 1, 400)
     ax.plot(q, -np.log(q), color=_CAT["text"], lw=2, label=r"loss $-\log p$")
     for p, color, name in ((right(d["prediction_now_cfi"]), _LINE["indigo"], "CFI"),
-                           (right(d["prediction_now_mc"]), _LINE["coral"], "MC")):
+                           (right(d["prediction_now_mc"]), _LINE["coral"], "Sampling")):
         ax.plot([p, p], [0, -np.log(p)], color=color, lw=1.2, ls=(0, (3, 2)))
         ax.plot(p, -np.log(p), "o", color=color, ms=12, mec="white", mew=1.5, zorder=5,
                 label=rf"{name}: $p={p:.3f}$, loss {-np.log(p):.3f}")
@@ -1099,8 +1083,8 @@ def _plot_training_step_by_step(d, texts, out_path):
     landscape(ax)
     ax.plot(*d["path_exact"].T, color=_SIGMA_BAND, lw=12, solid_capstyle="round", zorder=2, label="exact")
     for k, path in enumerate(d["paths_mc"]):
-        ax.plot(*path.T, color=_MC_FEW, lw=1.6, zorder=3, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(*d["path_mc_same"].T, color=_MC_SAME, lw=1.8, zorder=3, label=f"MC, {d['mc_same']} samples")
+        ax.plot(*path.T, color=_MC_FEW, lw=1.6, zorder=3, label=f"Sampling, {d['mc_few']} samples" if k == 0 else None)
+    ax.plot(*d["path_mc_same"].T, color=_MC_SAME, lw=1.8, zorder=3, label=f"Sampling, {d['mc_same']} samples")
     ax.plot(*d["path_cfi"].T, color=_LINE["indigo"], lw=2.4, zorder=4, label="CFI")
     ax.plot(*d["path_cfi"][::d["dot_every"]].T, "o", color=_LINE["indigo"], ms=5, zorder=4)
     ax.plot(*w_now, "o", ms=14, mfc="none", mec=_CAT["text"], mew=2, zorder=6)
@@ -1115,8 +1099,8 @@ def _plot_training_step_by_step(d, texts, out_path):
     floor = lambda g: np.maximum(g, 1e-6)
     _band(ax, steps, floor(d["gaps_exact"]), _SIGMA_BAND, label="exact")
     for k, g in enumerate(d["gaps_mc"]):
-        ax.plot(steps, floor(g), color=_MC_FEW, lw=1.6, label=f"MC, {d['mc_few']} samples" if k == 0 else None)
-    ax.plot(steps, floor(d["gaps_mc_same"]), color=_MC_SAME, lw=1.8, label=f"MC, {d['mc_same']} samples")
+        ax.plot(steps, floor(g), color=_MC_FEW, lw=1.6, label=f"Sampling, {d['mc_few']} samples" if k == 0 else None)
+    ax.plot(steps, floor(d["gaps_mc_same"]), color=_MC_SAME, lw=1.8, label=f"Sampling, {d['mc_same']} samples")
     ax.plot(steps, floor(d["gaps_cfi"]), color=_LINE["indigo"], lw=2.4, label="CFI")
     ax.set_yscale("log")
     ax.set_xlim(0, steps[-1])
@@ -1132,7 +1116,7 @@ def _plot_training_step_by_step(d, texts, out_path):
     _boundary(ax, d["w_star"], color=_SIGMA_BAND, lw=11, solid_capstyle="butt", zorder=1, label="exact")
     _boundary(ax, d["w_complete"], zorder=3, label="complete data", **_COMPLETE)
     _boundary(ax, d["w_mean"], zorder=3, label="mean imputation", **_MEAN)
-    _boundary(ax, d["paths_mc"][0][-1], color=_MC_FEW, lw=1.6, zorder=3, label=f"MC, {d['mc_few']} samples")
+    _boundary(ax, d["paths_mc"][0][-1], color=_MC_FEW, lw=1.6, zorder=3, label=f"Sampling, {d['mc_few']} samples")
     _boundary(ax, d["path_cfi"][-1], color=_LINE["indigo"], lw=2.2, zorder=4, label="CFI")
     _feature_axes(ax, d)
     _side_legend(ax)

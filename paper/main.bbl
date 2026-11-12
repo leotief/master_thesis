@@ -1,4 +1,4 @@
-\begin{thebibliography}{17}
+\begin{thebibliography}{13}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -11,19 +11,6 @@ Choi, Y., Vergari, A., and Van~den Broeck, G.
   probabilistic models.
 \newblock Technical report, University of California, Los Angeles, 10 2020.
 \newblock URL \url{http://starai.cs.ucla.edu/papers/ProbCirc20.pdf}.
-
-\bibitem[Golub \& Welsch(1969)Golub and Welsch]{golubwelsch1969}
-Golub, G.~H. and Welsch, J.~H.
-\newblock Calculation of {Gauss} quadrature rules.
-\newblock \emph{Mathematics of Computation}, 23\penalty0 (106):\penalty0
-  221--230, 1969.
-
-\bibitem[Hubbard(1959)]{hubbard1959}
-Hubbard, J.
-\newblock Calculation of partition functions.
-\newblock \emph{Physical Review Letters}, 3\penalty0 (2):\penalty0 77--78,
-  1959.
-\newblock \doi{10.1103/PhysRevLett.3.77}.
 
 \bibitem[Ibrahim et~al.(2005)Ibrahim, Chen, Lipsitz, and
   Herring]{ibrahim2005glm}
@@ -72,13 +59,6 @@ Mattei, P.-A. and Frellsen, J.
 \newblock In \emph{International Conference on Machine Learning}, pp.\
   4413--4423. PMLR, 2019.
 
-\bibitem[Polson et~al.(2013)Polson, Scott, and Windle]{polyagamma}
-Polson, N.~G., Scott, J.~G., and Windle, J.
-\newblock Bayesian inference for logistic models using p{\'o}lya--gamma latent
-  variables.
-\newblock \emph{Journal of the American statistical Association}, 108\penalty0
-  (504):\penalty0 1339--1349, 2013.
-
 \bibitem[Poon \& Domingos(2012)Poon and Domingos]{spn}
 Poon, H. and Domingos, P.
 \newblock Sum-product networks: A new deep architecture, 2012.
@@ -103,11 +83,6 @@ Stempfle, L. and Johansson, F.
 \newblock When pattern-by-pattern works: Theoretical and empirical insights for
   logistic models with missing values, 2025.
 \newblock URL \url{https://arxiv.org/abs/2507.13024}.
-
-\bibitem[Stratonovich(1957)]{stratonovich1957}
-Stratonovich, R.~L.
-\newblock On a method of calculating quantum distribution functions.
-\newblock \emph{Soviet Physics Doklady}, 2:\penalty0 416--419, 1957.
 
 \bibitem[van Buuren \& Groothuis-Oudshoorn(2011)van Buuren and
   Groothuis-Oudshoorn]{mice}

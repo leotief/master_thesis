@@ -18,17 +18,17 @@ testing. The density $p(x)$ is a GMM with $K = 4$ diagonal components, fit on th
 complete training points, and the classifier is a standard logistic regression from scikit-learn.
 The number of features goes from $5$ to $5{,}000$, each one being
 a factor $\sqrt{10}$ apart. For every test point a fraction
-$\rho \in \{0.3, 0.5, 0.8\}$ of the features is hidden at random. 
+$\rho \in \{0.3, 0.5, 0.8\}$ of the features is hidden at random.
 
 % TODO: the budget of MC and the number of frequencies K of CFI.
 The error is the RMSE over 50 test
 points against the exact value, which we compute from the Gaussian mixture of
-$z \mid \xo$ (Section~\ref{subsec:gmm-direct}) with adaptive quadrature. 
+$z \mid \xo$ (Section~\ref{subsec:gmm-direct}) with adaptive quadrature.
 The time is that of one batched call over all 2{,}000 test points on a GPU.
 
-We run the comparison in two variants, which differ only in terms of 
-standardisation and regularisation: one for the raw data with default regularisation $C = 1$, and one for the data with 
-standardised features and stronger regularisation $C = 10^{-3}$. 
+We run the comparison in two variants, which differ only in terms of
+standardisation and regularisation: one for the raw data with default regularisation $C = 1$, and one for the data with
+standardised features and stronger regularisation $C = 10^{-3}$.
 
 % TODO: results of the estimation experiment with CFI.
 
@@ -49,16 +49,16 @@ training points they see and in the prediction their loss is built from
 (Table~\ref{tab:training-models}):
 \begin{itemize}
   \item \textbf{Complete data:} an ordinary logistic regression from sklearn on the complete
-        training points. It acts as an oracle, the classifier that training could reach if no features were missing. 
+        training points. It acts as an oracle, the classifier that training could reach if no features were missing.
   \item \textbf{Mean imputation:} the same ordinary logistic regression on the training
         points with every missing feature replaced by the mean of its observed
         values.
   \item \textbf{MC, Exact:} the expected marginal likelihood \eqref{eq:marginal-likelihood}
         on the incomplete training points, estimated by Monte
-        Carlo, or computed exactly. 
+        Carlo, or computed exactly.
         Exact uses the direct route for Gaussian mixtures
         (Section~\ref{subsec:gmm-direct}) with Gauss--Hermite quadrature (a slightly higher error than adaptive quad, but much faster) for every
-        component. 
+        component.
 \end{itemize}
 
 \begin{table}[htb]
@@ -83,19 +83,19 @@ Exact           & $\xo$                        & $\sum_k \tilde\pi_k(\xo) \E_{\m
 
 MC and Exact are both trained with Adam on the same minibatches,
 starting from $w = 0$, so that they differ only in the estimate of the
-expectation. 
+expectation.
 
 \subsection{Setup}
 \label{subsec:training-setup}
 
-The data for the experiment is setup exactly as in Section~\ref{sec:results-estimate}. 
+The data for the experiment is setup exactly as in Section~\ref{sec:results-estimate}.
 The density is also again a GMM with $K = 4$ diagonal
 components, now fit on the incomplete training points. MC uses
 $S = 1{,}200$ samples per point and step. Exact uses 64 Gauss--Hermite
 nodes per component. Adam runs for 100 epochs with minibatches of 1{,}024 points
 and a learning rate of $0.01$.
 
-We train one configuration with the raw data and default regularisation $C = 1$, 
+We train one configuration with the raw data and default regularisation $C = 1$,
 and one with the standardised data and stronger regularisation $C = 10^{-3}$.
 
 \subsection{Evaluation}
@@ -109,9 +109,9 @@ The evaluation tries to answer two questions.
         the mean absolute difference between the expected predictions of a
         classifier and those of the Exact classifier on the incomplete test points, where in the evaluation all are predicted exactly.
   \item \textbf{How good is the final classifier?} We want to see if the accuracy of
-        $\sigma(w^T x)$ is on par with different training methods. 
-        We compute the prediction accuracy once with complete test points 
-        and once with partly missing test points. 
+        $\sigma(w^T x)$ is on par with different training methods.
+        We compute the prediction accuracy once with complete test points
+        and once with partly missing test points.
         For the incomplete test points, every model uses it's "own"
         rule:  mean imputation fill the missing features with
         their training means, MC and Exact use their own estimate of the
