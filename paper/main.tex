@@ -61,8 +61,8 @@
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\PG}{\mathrm{PG}}
-\newcommand{\xo}{x^o}
-\newcommand{\xm}{x^m}
+\newcommand{\xo}{x_o}
+\newcommand{\xm}{x_m}
 \renewcommand{\vec}[1]{\textbf{#1}}
 
 % The \icmltitle you define below is probably too long as a header.
@@ -84,7 +84,7 @@
 
   \icmlcorrespondingauthor{Leon Tiefenb\"ock}{leon.tiefenboeck@gmail.com}
 
-  \icmlkeywords{Probabilistic Circuits, Logistic Regression, Missing Data, P\'olya-Gamma, Characteristic Function}
+  \icmlkeywords{Probabilistic Circuits, Logistic Regression, Missing Data, Characteristic Function}
 
   \vskip 0.3in
 ]
@@ -92,11 +92,7 @@
 \printAffiliationsAndNotice{}
 
 \begin{abstract}
-  Probabilistic circuits (PCs) compute marginals and conditionals exactly, which makes them a natural model for data with missing features, yet they are rarely combined with a logistic regression, because the sigmoid destroys their tractability.
-  We show that the expected prediction of a logistic regression under a PC, marginalised over the missing features, can be computed deterministically and differentiably.
-  Rewriting the sigmoid with the Pólya--Gamma and Hubbard--Stratonovich identities reduces it to the conditional characteristic function of the PC, which a smooth and decomposable circuit computes in one pass, and to two one-dimensional integrals, for which we construct a Gaussian quadrature rule for the Pólya--Gamma distribution.
-  The PC and the logistic regression thus form one joint model with separate parameters, in which the classifier is trained discriminatively on incomplete data.
-  At the same budget our estimator is about four orders of magnitude more accurate than Monte Carlo and trains the same classifier as the exact expectation.
+\dots
 \end{abstract}
 
 \input{body}
@@ -116,5 +112,10 @@ which we feel must be specifically highlighted here.
 
 \bibliography{references}
 \bibliographystyle{icml2026}
+
+\newpage
+\appendix
+\onecolumn
+\input{appendix}
 
 \end{document}

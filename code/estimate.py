@@ -1,20 +1,21 @@
 # estimating the expected prediction E[sigmoid(w^T x) | x_obs] of a logistic
 # regression when features of the test points are missing: cfi against conditional
 # sampling (monte carlo), mean imputation and the conditional mean, how accurate and how
-# fast, on sklearn's make_classification (side/utils/data.py). two figures, both error and
+# fast, on sklearn's make_classification (utils/data.py). two figures, both error and
 # time against the number of features:
-#   comparison       the methods at fixed counts
+#   estimators       the methods at fixed counts
 #   cfi_frequencies  cfi with different numbers of frequencies (only with CFI_FREQUENCIES)
-# the helpers are in experiment_utils.py
+# the helpers are in utils/experiments.py
 
 import itertools
 
 import torch
 
-from experiment_utils import compare_cfi_frequencies, compare_estimates, fit_density, logistic_regression, score_methods
 from pclr import cfi
-from side.utils.baselines import conditional_mean_imputation, conditional_sampling, mean_imputation, mixture_adaptive_quad
-from side.utils.data import load_data
+from utils.baselines import conditional_mean_imputation, conditional_sampling, mean_imputation, mixture_adaptive_quad
+from utils.data import load_data
+from utils.experiments import compare_estimates, fit_density, logistic_regression, score_methods
+from utils.plots import plot_cfi_frequencies, plot_estimate_comparison
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -38,10 +39,13 @@ N_SAMPLES = 1000
 CFI_FREQS = 40
 
 # the second figure, cfi with every number of frequencies of CFI_COUNTS (False skips it)
-CFI_FREQUENCIES = False
+CFI_FREQUENCIES = True
 CFI_COUNTS      = [8, 16, 32, 64]
 
-SUFFIX = "_" + str(INFORMATIVE) + "_" + str(N_SAMPLES) + "_" + str(CFI_FREQS) + ("_norm" if NORM else "")
+# the end of the names of the figures: the settings they depend on, every value with its name
+NORM_SUFFIX = "_norm" if NORM else ""
+ESTIMATORS_SUFFIX  = f"_{INFORMATIVE}informative_{N_SAMPLES}samples_{CFI_FREQS}freqs{NORM_SUFFIX}"
+FREQUENCIES_SUFFIX = f"_{INFORMATIVE}informative{NORM_SUFFIX}"
 
 # the kl is over the first N_TEST test points (the exact value is slow), the
 # time is the median of TIME_REPEATS calls on all test points
@@ -50,7 +54,7 @@ TIME_REPEATS = 1
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ── comparison against the number of features ─────────────────────────────────
+# ── the methods against the number of features ────────────────────────────────
 
 # the scores of every method in every setting, scores[setting][method] = (kl, time),
 # and those of cfi with every number of frequencies, cfi_scores[setting][count] = (kl, time)
@@ -62,7 +66,7 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
     x_train, _, y_train, _, x_test_missing, _ = load_data(n_features, missing_rate, INFORMATIVE, SEED, device, standardize=NORM)
 
     # fit on complete points. the density only depends on the number of features (and NORM)
-    px = fit_density(MODEL, x_train, f"cache/estimate/{MODEL}/K{K}_{n_features}features_{INFORMATIVE}informative{'_norm' if NORM else ''}.pt", device, K)
+    px = fit_density(MODEL, x_train, f"cache/estimate/{MODEL}/K{K}_{n_features}features_{INFORMATIVE}informative{NORM_SUFFIX}.pt", device, K)
     w = logistic_regression(x_train, y_train)
 
     # the methods, every one called as method(first, w, x_partial, **settings). first is the
@@ -86,6 +90,6 @@ for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
         counts = {count: (cfi, px, {"n_freq": count}) for count in CFI_COUNTS}
         cfi_scores[(n_features, missing_rate)] = score_methods(counts, w, x_test_missing, truths, TIME_REPEATS)
 
-compare_estimates(scores, FEATURES, MISSING_RATES, len(x_test_missing), f"estimate/{MODEL}", f"comparison{SUFFIX}")
+compare_estimates(plot_estimate_comparison, scores, FEATURES, MISSING_RATES, len(x_test_missing), f"estimate/{MODEL}", f"estimators{ESTIMATORS_SUFFIX}")
 if CFI_FREQUENCIES:
-    compare_cfi_frequencies(cfi_scores, FEATURES, MISSING_RATES, len(x_test_missing), f"estimate/{MODEL}", f"cfi_frequencies{SUFFIX}")
+    compare_estimates(plot_cfi_frequencies, cfi_scores, FEATURES, MISSING_RATES, len(x_test_missing), f"estimate/{MODEL}", f"cfi_frequencies{FREQUENCIES_SUFFIX}")

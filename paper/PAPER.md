@@ -6,7 +6,7 @@ The paper is the main focus of the project. It is written for ICML in the offici
 
 - `main.tex` — preamble, front matter (title, author, abstract) and the required end sections; `\input`s `body.tex`. Built from `template/example_paper.tex`.
 - `body.tex` — the whole main body, all sections in one file (the paper is short: at most 8 pages).
-- No appendix for now: the focus is the main body (at most 8 pages, figures included). An appendix comes later.
+- `appendix.tex` — the appendix (one column, after the references, `\input` in `main.tex`): the details of evaluating the integral (truncation, step size, cost), the CF and moments of PC and GMM, the exact GMM reference, and the real-data tables for 10 and 50 % missing. The main body keeps the derivation, a condensed version of the integral and the circuit CF, and the 30 % tables.
 - `references.bib` — bibliography (natbib + `icml2026.bst`, i.e. bibtex, not biber).
 - `tables/` — tables of the paper, written by scripts in `code/` (`real_data.py` writes `real_data_log_loss.tex` and `real_data_accuracy.tex`, LaTeX tabulars to `\input` in a `table`/`table*`).
 - `figures/` — figures of the paper. Scripts in `code/` that make paper figures write them here (as they write thesis figures to `thesis/figures/`). The style rules of `code/PLOTTING.md` apply, but sized for the ICML column (`\columnwidth` ≈ 3.25 in, `\textwidth` ≈ 6.75 in) instead of the thesis text width.
@@ -40,12 +40,13 @@ The introduction leads with this framing. The experiments (estimation accuracy a
 
 Why PGHS was replaced: its inner integral carries a factor e^{1/(8γ)} that cancels catastrophically for small γ (and makes the MC variant have infinite variance), and the sum of Gaussian bells approximates the sigmoid badly for large positive z, which the sign flip only fixes when p(z | x_obs) lies on one side of 0. So PGHS breaks down for a wide p(z | x_obs), i.e. many missing features. CFI has neither problem.
 
-**Figures for the new experiments** (in `thesis/figures/`, to be resized for the ICML column):
-- `estimate/gmm/comparison_0.5_1000_100_norm.pdf` — CFI vs. MC vs. mean imputation, KL and time against the number of features;
-- `estimate/gmm/cfi_frequencies_0.5_1000_100_norm.pdf` — CFI with 8–64 frequencies;
-- `train/gmm/training_complete_test_1.0.pdf`, `training_incomplete_test_1.0.pdf` — the training comparison on complete / incomplete test points;
-- `train/gmm/weights_1.0.pdf` — the relative error of w against the number of features;
-- `train/gmm/convergence_1.0.pdf` — the error of w against the number of training points, on the earlier LR-generated data (removed). Replaced by the learning curve `train/gmm/learning_curve_<INFORMATIVE>_<LAMBDA>.pdf` on `make_classification` (not run yet).
+**Figures in the paper** (`figure*`, written to `paper/figures/` at the ICML text width by `code/estimate.py` and `code/train.py`):
+- `estimate/gmm/estimators_0.5informative_1000samples_40freqs.pdf` (`fig:estimators`) — CFI vs. MC vs. conditional mean and mean imputation, KL and time against the number of features;
+- `estimate/gmm/cfi_frequencies_0.5informative.pdf` (`fig:cfi-frequencies`) — CFI with 8–64 frequencies;
+- `train/gmm/complete_test_0.25informative_0.25redundant_1.0lambda.pdf` (`fig:training-complete`) — the training comparison on complete test points;
+- `train/gmm/pclr_variants_incomplete_test_0.25informative_0.25redundant_1.0lambda.pdf` (`fig:pclr-variants`) — the PCLR variants on incomplete test points.
+
+The other figures of the scripts (the training comparison on incomplete test points, the learning curves, the variants on complete test points) are written to `paper/figures/` too, but not used so far.
 
 **Related work to cite and discuss:** Khosravi et al., "What to Expect of Classifiers? Reasoning about Logistic Regression with Missing Features" (IJCAI 2019; expected LR prediction is hard even under naive Bayes) and "On Tractable Computation of Expected Predictions" (NeurIPS 2019; moments / Taylor series for classification) — the closest prior work and a natural baseline; Yu, Trapp, Kersting, "Characteristic Circuits" (NeurIPS 2023) and Broadrick et al., "Polynomial Semantics of Tractable Probabilistic Circuits" (UAI 2024) — PCs give the characteristic function tractably; Gil-Pelaez (1951) — the inversion formula; Pirjol (2013) and Monahan & Stefanski — the logistic-normal integral. Frame the result as an error-controlled approximation to float precision, not exact tractability (the exact problem is hard).
 

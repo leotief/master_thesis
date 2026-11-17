@@ -1,4 +1,4 @@
-\begin{thebibliography}{13}
+\begin{thebibliography}{5}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -12,77 +12,16 @@ Choi, Y., Vergari, A., and Van~den Broeck, G.
 \newblock Technical report, University of California, Los Angeles, 10 2020.
 \newblock URL \url{http://starai.cs.ucla.edu/papers/ProbCirc20.pdf}.
 
-\bibitem[Ibrahim et~al.(2005)Ibrahim, Chen, Lipsitz, and
-  Herring]{ibrahim2005glm}
-Ibrahim, J.~G., Chen, M.-H., Lipsitz, S.~R., and Herring, A.~H.
-\newblock Missing-data methods for generalized linear models: A comparative
-  review.
-\newblock \emph{Journal of the American Statistical Association}, 100\penalty0
-  (469):\penalty0 332--346, 2005.
-
-\bibitem[Ipsen et~al.(2021)Ipsen, Mattei, and Frellsen]{ipsen2021notmiwae}
-Ipsen, N.~B., Mattei, P.-A., and Frellsen, J.
-\newblock not-{MIWAE}: Deep generative modelling with missing not at random
-  data.
-\newblock In \emph{International Conference on Learning Representations}, 2021.
-
-\bibitem[Jiang et~al.(2020)Jiang, Josse, and Lavielle]{jiang2020logreg}
-Jiang, W., Josse, J., and Lavielle, M.
-\newblock Logistic regression with missing covariates---parameter estimation,
-  model selection and prediction within a joint-modeling framework.
-\newblock \emph{Computational Statistics \& Data Analysis}, 145:\penalty0
-  106907, 2020.
-\newblock URL \url{https://arxiv.org/abs/1805.04602}.
-
-\bibitem[Khosravi et~al.(2019)Khosravi, Liang, Choi, and Van~den
-  Broeck]{khosravi2019expect}
-Khosravi, P., Liang, Y., Choi, Y., and Van~den Broeck, G.
-\newblock What to expect of classifiers? {R}easoning about logistic regression
-  with missing features.
-\newblock In \emph{Proceedings of the 28th International Joint Conference on
-  Artificial Intelligence (IJCAI)}, 2019.
-\newblock URL \url{https://arxiv.org/abs/1903.01620}.
-
-\bibitem[Le~Morvan et~al.(2020)Le~Morvan, Josse, Moreau, Scornet, and
-  Varoquaux]{lemorvan2020neumiss}
-Le~Morvan, M., Josse, J., Moreau, T., Scornet, E., and Varoquaux, G.
-\newblock {NeuMiss} networks: differentiable programming for supervised
-  learning with missing values.
-\newblock In \emph{Advances in Neural Information Processing Systems},
-  volume~33, 2020.
-\newblock URL \url{https://arxiv.org/abs/2007.01627}.
-
-\bibitem[Mattei \& Frellsen(2019)Mattei and Frellsen]{mattei2019miwae}
-Mattei, P.-A. and Frellsen, J.
-\newblock {MIWAE}: Deep generative modelling and imputation of incomplete data
-  sets.
-\newblock In \emph{International Conference on Machine Learning}, pp.\
-  4413--4423. PMLR, 2019.
+\bibitem[Gil-Pelaez(1951)]{gilpelaez1951}
+Gil-Pelaez, J.
+\newblock Note on the inversion theorem.
+\newblock \emph{Biometrika}, 38\penalty0 (3--4):\penalty0 481--482, 1951.
+\newblock \doi{10.1093/biomet/38.3-4.481}.
 
 \bibitem[Poon \& Domingos(2012)Poon and Domingos]{spn}
 Poon, H. and Domingos, P.
 \newblock Sum-product networks: A new deep architecture, 2012.
 \newblock URL \url{https://arxiv.org/abs/1202.3732}.
-
-\bibitem[Saar-Tsechansky \& Provost(2007)Saar-Tsechansky and
-  Provost]{saartsechansky2007}
-Saar-Tsechansky, M. and Provost, F.
-\newblock Handling missing values when applying classification models.
-\newblock \emph{Journal of Machine Learning Research}, 8:\penalty0 1623--1657,
-  2007.
-
-\bibitem[Stekhoven \& B{\"u}hlmann(2012)Stekhoven and B{\"u}hlmann]{missforest}
-Stekhoven, D.~J. and B{\"u}hlmann, P.
-\newblock {MissForest}---non-parametric missing value imputation for mixed-type
-  data.
-\newblock \emph{Bioinformatics}, 28\penalty0 (1):\penalty0 112--118, 2012.
-
-\bibitem[Stempfle \& Johansson(2025)Stempfle and
-  Johansson]{stempfle2025patternbypattern}
-Stempfle, L. and Johansson, F.
-\newblock When pattern-by-pattern works: Theoretical and empirical insights for
-  logistic models with missing values, 2025.
-\newblock URL \url{https://arxiv.org/abs/2507.13024}.
 
 \bibitem[van Buuren \& Groothuis-Oudshoorn(2011)van Buuren and
   Groothuis-Oudshoorn]{mice}
@@ -91,10 +30,10 @@ van Buuren, S. and Groothuis-Oudshoorn, K.
 \newblock \emph{Journal of Statistical Software}, 45\penalty0 (3):\penalty0
   1--67, 2011.
 
-\bibitem[Yoon et~al.(2018)Yoon, Jordon, and van~der Schaar]{yoon2018gain}
-Yoon, J., Jordon, J., and van~der Schaar, M.
-\newblock {GAIN}: Missing data imputation using generative adversarial nets.
-\newblock In \emph{International Conference on Machine Learning}, pp.\
-  5689--5698. PMLR, 2018.
+\bibitem[Yu et~al.(2023)Yu, Trapp, and Kersting]{yu2023characteristic}
+Yu, Z., Trapp, M., and Kersting, K.
+\newblock Characteristic circuits.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~36, 2023.
 
 \end{thebibliography}

@@ -1,20 +1,20 @@
 # the real-data comparison: pclr against the usual ways to train a classifier when the
-# training points have missing features, on real datasets (side/utils/data.py, load_real).
+# training points have missing features, on real datasets (utils/data.py, load_real).
 # for every dataset, missing rate and seed (a new split and new hidden features): every
 # model of MODELS is trained on the incomplete training points and predicts the incomplete
 # test points with its own rule, scored by log-loss and accuracy. the lr without missing
 # values is the reference. the result is a table per missing rate and score,
 # mean ± std over the seeds, printed and written as latex to paper/tables/.
-# the models are in side/utils/baselines.py and pclr.py, the helpers in experiment_utils.py
+# the models are in utils/baselines.py and pclr.py, the helpers in utils/experiments.py
 
 import itertools
 
 import torch
 
-from experiment_utils import fit_density, prediction_scores, real_data_tables
 from pclr import PCLR
-from side.utils.baselines import CompleteData, ConditionalMeanImputation, GenerativeClassifier, MeanImputation, MICE
-from side.utils.data import load_real
+from utils.baselines import CompleteData, ConditionalMeanImputation, GenerativeClassifier, MeanImputation, MICE
+from utils.data import load_real
+from utils.experiments import fit_density, prediction_scores, real_data_tables
 
 # ── config ────────────────────────────────────────────────────────────────────
 

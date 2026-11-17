@@ -3,7 +3,7 @@
 # observed features and the expected prediction of its label, both differentiable.
 #
 # below the model is the method for the expected prediction, cfi. like the baselines in
-# side/utils/baselines.py, it is a plain function method(density, w, x_partial, **settings),
+# utils/baselines.py, it is a plain function method(density, w, x_partial, **settings),
 # with nan at the missing features, and returns a tensor with gradients through w and the
 # density
 
@@ -56,7 +56,7 @@ class PCLR(nn.Module):
     # own copy of the fitted one (start "fitted", or the density fixed). w starts at 0
     def fit(self, x_partial, y, density):
         if self.start == "untrained" and self.train_density:
-            self.density = type(density).start(x_partial, density.K, density.device)
+            self.density = type(density)(x_partial, density.K, density.device)
         else:
             self.density = copy.deepcopy(density)
         for parameter in self.density.parameters():
@@ -86,7 +86,7 @@ class PCLR(nn.Module):
 # beyond this frequency the weights are below double precision
 S_MAX = 12.0
 
-# density needs characteristic_function, z_mean and z_var
+# density needs char_func, z_mean and z_var
 def cfi(density, w, x_partial, n_freq=200):
     results = []
     for part in chunks(x_partial, per_point=n_freq * len(w)):
@@ -103,7 +103,7 @@ def cfi(density, w, x_partial, n_freq=200):
         mis_mask = torch.isnan(part)
         wo_xo = (w * torch.nan_to_num(part)).sum(dim=-1)[..., None]
         freqs = s[..., None] * (w * mis_mask).unsqueeze(-2)
-        cf = torch.exp(torch.complex(torch.zeros_like(s), s * wo_xo)) * density.characteristic_function(freqs, x_obs=part)
+        cf = torch.exp(torch.complex(torch.zeros_like(s), s * wo_xo)) * density.char_func(freqs, x_obs=part)
 
         # trapezoid rule, the term at frequency 0 has half the weight and is the mean of z
         integral = h * (mean / (2 * np.pi) + (cf.imag / torch.sinh(np.pi * s)).sum(dim=-1))

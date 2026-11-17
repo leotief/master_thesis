@@ -1,6 +1,6 @@
 # Plotting style
 
-Every figure is drawn with the helpers in `code/side/utils/plots.py`. Read this before writing or changing a plot, and reuse the constants listed here instead of picking new colours.
+Every figure is drawn with the helpers in `code/utils/plots.py`. Read this before writing or changing a plot, and reuse the constants listed here instead of picking new colours.
 
 ## General rules
 
@@ -20,7 +20,7 @@ Every figure is drawn with the helpers in `code/side/utils/plots.py`. Read this 
 | line widths | the step-by-step widths × `_THESIS_SCALE` (0.45) | as listed below |
 | axes and text | grey `0.3` | Catppuccin text slate `#4c4f69` |
 
-Thesis figures go straight into the LaTeX project: `side/estimate_demo.py` writes them to both `code/side/figures/estimate/` and `thesis/figures/cfi/`.
+Thesis figures go straight into the LaTeX project: `utils/estimate_demo.py` writes them to both `code/utils/figures/estimate/` and `thesis/figures/cfi/`. The experiment figures of `estimate.py` and `train.py` go through `save_figure` to `code/figures/`, `thesis/figures/` and `paper/figures/`; every such plot function takes `paper`, and with it the figure is `PAPER_WIDTH` (6.75 in, the ICML `\textwidth`, for a `figure*`) wide and a little lower, instead of `THESIS_WIDTH`.
 
 ## Colours
 

@@ -10,11 +10,11 @@ In one sentence: a probabilistic circuit (PC) is tractable, but it is usually no
 
 ## Repository layout
 
-- `paper/` — the ICML paper. `main.tex` (preamble, front matter) + `body.tex` (main body, max 8 pages) + `references.bib`, build with `cd paper && make pdf`. `paper/template/` is the untouched ICML template, kept as the reference for the formatting instructions. Do not change it.
+- `paper/` — the ICML paper. `main.tex` (preamble, front matter) + `body.tex` (main body, max 8 pages) + `appendix.tex` + `references.bib`, build with `cd paper && make pdf`. `paper/template/` is the untouched ICML template, kept as the reference for the formatting instructions. Do not change it.
 - `code/` — Python research code (PyTorch). **Read [code/CODE.md](code/CODE.md) before working on the code**: files, the methods (CFI, PGHS, baselines), the `PCLR` model, density models, the experiments `estimate.py` and `train.py`, pitfalls, the current findings and open points. Every plot follows [code/PLOTTING.md](code/PLOTTING.md).
 - `thesis/` — LaTeX source of the master's thesis (Karl Voit template), paused. Build with `cd thesis && make pdf` (plain `make` only prints the help; pdflatex + biber). Its chapters are a source of text for the paper; the methods chapter is current (CFI and PCLR), the others still describe PGHS.
 
-Run Python with `~/.pyenv/versions/ml/bin/python` (it has all dependencies), from `code/` (the demos in `code/side/` from there).
+Run Python with `~/.pyenv/versions/ml/bin/python` (it has all dependencies), from `code/` (the demos in `code/utils/` from there).
 
 ## Preferences
 

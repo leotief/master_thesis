@@ -1,22 +1,22 @@
 # the training comparison: how well pclr and the usual ways to train a logistic regression
 # do when the training points have missing features, on sklearn's make_classification
-# (side/utils/data.py). every model is trained on the incomplete training points,
+# (utils/data.py). every model is trained on the incomplete training points,
 # all by l-bfgs until convergence, and scored by log-loss and accuracy on
 #   complete test    complete test points, sigmoid(w^T x), so only the training differs
 #   incomplete test  incomplete test points, every model with its own prediction rule
 # the lr without missing values is the reference. two experiments:
 #   comparison       against the number of features, a column per missing rate
 #   learning curve   against the number of training points, at one setting
-# the models are in side/utils/baselines.py and pclr.py, the helpers in experiment_utils.py
+# the models are in utils/baselines.py and pclr.py, the helpers in utils/experiments.py
 
 import itertools
 
 import torch
 
-from experiment_utils import compare_learning_curve, compare_training, fit_density, print_training_scores, training_scores
 from pclr import PCLR
-from side.utils.baselines import CompleteData, ConditionalMeanImputation, MeanImputation
-from side.utils.data import load_data
+from utils.baselines import CompleteData, ConditionalMeanImputation, MeanImputation
+from utils.data import load_data
+from utils.experiments import compare_learning_curve, compare_training, fit_density, print_training_scores, training_scores
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -49,9 +49,10 @@ CURVE_RATE     = 0.3
 N_TRAINS       = [2 ** k for k in range(8, 15)]
 CURVE_TEST     = 5000
 
-# the end of the names of the figures and the json, and of the cached densities
-SUFFIX      = "_" + str(INFORMATIVE) + "_" + str(REDUNDANT) + "_" + str(LAMBDA) + ("_norm" if NORM else "")
+# the end of the names of the figures and the json (the settings, every value with its
+# name), and of the cached densities
 NORM_SUFFIX = "_norm" if NORM else ""
+SUFFIX      = f"_{INFORMATIVE}informative_{REDUNDANT}redundant_{LAMBDA}lambda{NORM_SUFFIX}"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -79,8 +80,8 @@ PCLR_VARIANTS = {
 
 # the comparison: for every number of features and missing rate, the data, the density
 # fit on the incomplete training points, and every model of models trained and scored.
-# saved and drawn against the number of features, with the suffix
-def comparison(models, suffix):
+# saved and drawn against the number of features, the names starting with prefix
+def comparison(models, prefix):
     scores = {}
     for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
         setting = (n_features, missing_rate)
@@ -105,14 +106,14 @@ def comparison(models, suffix):
                 scores[setting][name] = training_scores(model.w.detach(), model.predict(x_eval), x_test, y_test)
         print_training_scores(n_features, missing_rate, scores[setting])
 
-    compare_training(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", suffix)
+    compare_training(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", prefix, SUFFIX)
 
 
 # the learning curve: the largest dataset once, every number of training points its first
 # n points with its own density, every model of models trained and scored on the same
-# incomplete test points. saved and drawn against the number of training points, with the
-# suffix
-def learning_curve(models, suffix):
+# incomplete test points. saved and drawn against the number of training points, the
+# names starting with prefix
+def learning_curve(models, prefix):
     n = N_TRAINS[-1] + CURVE_TEST
     x_train_all, x_missing_all, y_train_all, x_test, x_test_missing, y_test = load_data(
         CURVE_FEATURES, CURVE_RATE, INFORMATIVE, SEED, device, standardize=NORM, samples=n, test_size=CURVE_TEST / n, redundant=REDUNDANT)
@@ -141,13 +142,13 @@ def learning_curve(models, suffix):
             curve[name]["accuracy"].append(score["accuracy_incomplete"])
         print(f"    {n_train:>7} points   " + "   ".join(f"{name} {score['log_loss_incomplete']:.4f}" for name, score in scores.items()))
 
-    compare_learning_curve(N_TRAINS, curve, CURVE_FEATURES, CURVE_RATE, f"train/{MODEL}", suffix)
+    compare_learning_curve(N_TRAINS, curve, CURVE_FEATURES, CURVE_RATE, f"train/{MODEL}", prefix, SUFFIX)
 
 # ── run ───────────────────────────────────────────────────────────────────────
 
 # the pclr variants, then the main comparison (comment a line out to skip it)
-comparison(PCLR_VARIANTS, "_pclr_variants" + SUFFIX)
-learning_curve(PCLR_VARIANTS, "_pclr_variants" + SUFFIX)
+comparison(PCLR_VARIANTS, "pclr_variants_")
+learning_curve(PCLR_VARIANTS, "pclr_variants_")
 
-comparison(MODELS, SUFFIX)
-learning_curve(MODELS, SUFFIX)
+comparison(MODELS, "")
+learning_curve(MODELS, "")
