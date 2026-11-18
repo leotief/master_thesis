@@ -57,7 +57,7 @@ mixture_adaptive_quad(density, w, x_partial, epsrel=1e-12)  # baselines.py, the 
 
 ### CFI (`cfi`, characteristic-function inversion)
 
-E[σ(z)] = ½ + ∫₀^∞ Im φ_z(s)/sinh(πs) ds, exact, by the trapezoid rule on K = `n_freq` frequencies. The step h per point is min(π/(|E z| + 6·std z + 1), 12/K) from `density.z_mean` and `density.z_var`; it is detached (the value doesn't depend on it). Needs `char_func`, `z_mean`, `z_var`.
+E[σ(z)] = ½ + ∫₀^∞ Im φ_z(s)/sinh(πs) ds, exact, by the trapezoid rule on K = `n_freq` frequencies. The step h per point is min(π/(|E z| + 6·std z), 12/K) from `density.z_mean` and `density.z_var`; it is detached (the value doesn't depend on it). Needs `char_func`, `z_mean`, `z_var`.
 
 ## Density models
 
@@ -93,27 +93,27 @@ The data is `make_classification` (`load_data`, 8000 complete training points, 2
 
 ## pclr.py — the joint model
 
-`PCLR(n_freq=100, C=1.0, eps=1e-6, train_density=True, max_iter=1000, start="untrained")`, an `nn.Module` holding the density p_θ(x) (made trainable again) and the LR weights `w` (start at 0), the joint model p(x, y) = p_θ(x)·σ(wᵀx)^y·(1 − σ(wᵀx))^(1−y) of the thesis. For an incomplete point the log-likelihood splits into log p_θ(x_obs) (the density's `forward`) and log p(y | x_obs) (BCE of the expected prediction by `cfi`). The model are only θ and w; CFI is how one of its queries is computed, not a part of it.
+`PCLR(n_freq=100, C=1.0, density_mode="untrained")` with `fit(x_partial, y, density, max_iter=1000)` (the clamp of the predictions in the loss is the constant `EPS = 1e-6` in `pclr.py`), an `nn.Module` holding the density p_θ(x) (made trainable again) and the LR weights `w` (start at 0), the joint model p(x, y) = p_θ(x)·σ(wᵀx)^y·(1 − σ(wᵀx))^(1−y) of the thesis. For an incomplete point the log-likelihood splits into log p_θ(x_obs) (the density's `forward`) and log p(y | x_obs) (BCE of the expected prediction by `cfi`). The model are only θ and w; CFI is how one of its queries is computed, not a part of it.
 
 ```python
 model.predict(x_partial)                     # p(y=1 | x_obs), tensor (B,), gradients through θ and w
-model.log_density(x_partial)                 # log p_θ(x_obs), tensor (B,)
+model.density(x_partial)                     # log p_θ(x_obs), tensor (B,)
 model.log_likelihood(x_partial, y)           # (mean log p_θ(x_obs), mean log p(y | x_obs))
-model.objective(x_partial, y, n_train)       # −(log p_θ(x_obs) + log p(y | x_obs)) + |w|²/(2 C n_train)
+model.objective(x_partial, y)                # −(log p_θ(x_obs) + log p(y | x_obs)) + |w|²/(2 C n), n the number of points
 ```
 
-`model.fit(x_partial, y, density)` trains a new untrained GMM of the same size (default, `start="untrained"`; a copy of the fitted density with `start="fitted"`) and w jointly, or only w on the fitted density (`train_density=False`), by L-BFGS on all points at once until convergence.
+`model.fit(x_partial, y, density)` trains a new untrained GMM of the same size (default, `density_mode="untrained"`; a copy of the fitted density with `density_mode="fitted"`) and w jointly, or only w on the fitted density (`density_mode="fixed"`), by L-BFGS on all points at once until convergence.
 
 ## train.py — the training comparison
 
 How well PCLR and the usual ways to train a logistic regression do when the training points have missing features. Layout: config; two model dicts, `MODELS` (the reference `Complete data`, the imputations, PCLR) and `PCLR_VARIANTS` (PCLR from an untrained density, from the fitted density, with the fitted density fixed); the two experiments `comparison(models, prefix)` and `learning_curve(models, prefix)`, each loading the data and fitting the density once per setting and training and scoring every model of the dict (the reference, recognized by `isinstance(model, CompleteData)`, on the complete training and test points); and four run lines (the variants, their names starting with `pclr_variants_`, then the main comparison with no prefix), each can be commented out. All models are optimized until convergence by L-BFGS (sklearn for the baselines, `PCLR.fit` full batch for PCLR), so only the methods differ.
 
 - **Data:** sklearn's `make_classification` (`load_data`, with the split `INFORMATIVE`, `REDUNDANT` of `utils/data.py`, standardized (`NORM = True`, raw files get `_raw`); without redundant features the observed features say little about the missing ones and all methods are close, with them PCLR leads mean imputation clearly, e.g. log-loss 0.580 against 0.635 at 16 features and 50 % missing), 8000 training and 2000 test points. Training and test points get missing features at the same rate. There is no true `w` (the LR is not the true model of this data), so there is no weight error; models are scored by their predictions only.
-- **Config:** `FEATURES` (4–256, powers of 2), `MISSING_RATES` (10/30/50 %, every entry missing with that probability), `SEED` (the hidden features), `NORM`, PCLR's `N_FREQ` and L-BFGS's `MAX_ITER`; the penalty is the default C = 1 everywhere.
+- **Config:** `FEATURES` (4–256, powers of 2), `MISSING_RATES` (10/30/50 %, every entry missing with that probability), `SEED` (the hidden features), `NORM`, PCLR's `N_FREQ` (L-BFGS runs `fit`'s default of 1000 iterations); the penalty is the default C = 1 everywhere.
 - **Loop:** features × missing rates: the data, the density fit on the incomplete training points (cached in `code/cache/train/<MODEL>/`), the `models` dict, every model fit (only `Complete data` on the complete training points), then scored by `training_scores` on **complete** test points (σ(wᵀx), only the training differs) and on **incomplete** test points (its own rule): log-loss and accuracy.
 - **Output:** `code/cache/train/<MODEL>/<prefix>scores<suffix>.json` (`<suffix>` = `NORM_SUFFIX`, empty for standardized features, `_raw` for raw ones), and into `code/figures/train/<MODEL>/`, `thesis/figures/train/<MODEL>/` and `paper/figures/train/<MODEL>/`: `<prefix>complete_test<suffix>` and `<prefix>incomplete_test<suffix>` by `plot_training_comparison` (a column per missing rate, log-loss on top and accuracy below, every panel its own y-axis, complete data as the butter band only on complete test points).
 - **Learning curve:** at `CURVE_FEATURES` (100) and `CURVE_RATE` (30 %), the log-loss and accuracy on the same `CURVE_TEST` (5000) incomplete test points against the number of training points `N_TRAINS` (2⁸ to 2¹⁴). One large dataset (`load_data` with `samples` and `test_size`), every size uses its first n training points. Saved as `code/cache/train/<MODEL>/<prefix>learning_curve<suffix>.json` and drawn as `<prefix>learning_curve<suffix>` by `plot_learning_curve` (log-loss left, accuracy right, complete data as the butter band).
-- **PCLR variants:** `PCLR_VARIANTS`, their names starting with `pclr_variants_`: `PCLR` (default, the trained density starts untrained), `PCLR fitted start` (`start="fitted"`), `PCLR fixed density` (`train_density=False`, always the fitted density).
+- **PCLR variants:** `PCLR_VARIANTS`, their names starting with `pclr_variants_`: `PCLR` (default, the trained density starts untrained), `PCLR fitted start` (`density_mode="fitted"`), `PCLR fixed density` (`density_mode="fixed"`, the fitted density).
 
 Every model has `fit(x_train, y_train, density)` (the incomplete training points and the density fit on them; not every model uses it), its weights `w` and `predict(x_test)` (its own rule for incomplete test points). `PCLR` from `pclr.py` trains a new untrained GMM (`GMM(x, K, device)`, the default) or its own copy of the fitted density and creates `w` in `fit`; the others are in `utils/baselines.py`. The same model objects are trained again on every setting.
 
@@ -122,7 +122,7 @@ Every model has `fit(x_train, y_train, density)` (the incomplete training points
 | Complete data | LR on the complete training points — the reference without missing values | σ(wᵀx) on the **complete** test points (it has no density) |
 | Mean imputation | LR on the gaps filled by the training means | the same filling |
 | Conditional mean imputation | LR on the gaps filled by the density's E[x_mis \| x_obs] (`GMM.conditional_mean`) | the same filling |
-| PCLR fixed density | `pclr` with `train_density=False`: only w, the density kept as fit | expected prediction under the fitted density |
+| PCLR fixed density | `pclr` with `density_mode="fixed"`: only w, the density kept as fit | expected prediction under the fitted density |
 | PCLR | density and w jointly | expected prediction under its own density |
 
 ## real_data.py — the real-data table
@@ -143,7 +143,7 @@ Not pinned: `torch`, `numpy`, `scipy`, `scikit-learn`, `matplotlib`, `polyagamma
 - **Precision at many features:** the GMM's log-likelihood per component (`component_log_probs`) is a sum over all observed features, in the thousands at many features. In float32 the differences between the components got lost: at 5000 features the posterior weights were off by up to 1.4e-3, and CFI's error grew to about 1e-4 in p (KL up to 5e-10). So `component_log_probs` computes in float64, and `forward` / `posterior_weights` cast back to the input's dtype; everything else stays float32. With that, float32 CFI is accurate to about 1e-7 in p in every setting, and in float64 to about 1e-14. The reference `mixture_adaptive_quad` works on a float64 copy of the density for the same reason (in float32 its mixture of z was off by up to 2e-5 at 5000 features). Checked 2026-11-18 by computing CFI and the reference each in float32 and float64.
 - `fit_density` caches by path. The cache names contain the setting (features, informative and redundant fractions, missing rate, seed, `_raw` for raw features, and for the learning curve the number of points); if the data changes, change the cache names or delete the old caches, or the cached densities no longer match the data.
 - Training must be comparable: all models are optimized to convergence (L-BFGS). An earlier version trained PCLR with a fixed number of Adam steps against converged sklearn baselines, which made PCLR look worse at many features.
-- CFI with few frequencies is inaccurate when z is narrow and far from 0 (few features, few missing): K has to be ≥ 12·(|E z| + 6·std z + 1)/π. 64 frequencies are at the float32 limit in every setting of `estimate.py`.
+- CFI with few frequencies is inaccurate when z is narrow and far from 0 (few features, few missing): K has to be ≥ 12·(|E z| + 6·std z)/π. 64 frequencies are at the float32 limit in every setting of `estimate.py`.
 
 ## Status and findings (November 2026)
 

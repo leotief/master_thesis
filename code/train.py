@@ -1,13 +1,9 @@
-# the training comparison: how well pclr and the usual ways to train a logistic regression
-# do when the training points have missing features, on sklearn's make_classification
-# (utils/data.py). every model is trained on the incomplete training points,
-# all by l-bfgs until convergence, and scored by log-loss and accuracy on
-#   complete test    complete test points, sigmoid(w^T x), so only the training differs
-#   incomplete test  incomplete test points, every model with its own prediction rule
-# the lr without missing values is the reference. two experiments:
-#   comparison       against the number of features, a column per missing rate
-#   learning curve   against the number of training points, at one setting
-# the models are in utils/baselines.py and pclr.py, the helpers in utils/experiments.py
+# how well pclr and the usual ways to train a logistic regression do when the training
+# points have missing features. every model is trained on the incomplete training points
+# and scored on complete test points (only the training differs) and on incomplete ones
+# (each model predicts in its own way). the logistic regression without missing values is
+# the reference. two experiments: against the number of features, and against the number
+# of training points
 
 import itertools
 
@@ -20,75 +16,57 @@ from utils.experiments import compare_learning_curve, compare_training, fit_dens
 
 # ── config ────────────────────────────────────────────────────────────────────
 
-# the density model, so far only the gmm has everything cfi needs, and its number of components
-MODEL = "gmm"
-K     = 4
+MODEL = "gmm"                                   # the density model, so far only the gmm has everything cfi needs
+K     = 4                                       # its number of components
 
-# the numbers of features (powers of 2, evenly spaced on a log axis; the split into
-# informative, redundant and noise features, INFORMATIVE and REDUNDANT, is that of every
-# experiment, in utils/data.py), the probabilities of every entry to be missing, the seed of
-# the hidden features, and whether the features are standardized
-FEATURES      = [2 ** k for k in range(2, 9)]
-MISSING_RATES = [0.1, 0.3, 0.5]
-SEED          = 0
-NORM          = True
+FEATURES      = [2 ** k for k in range(2, 9)]   # numbers of features, evenly spaced on a log axis
+MISSING_RATES = [0.1, 0.3, 0.5]                 # how likely each entry is missing
+SEED          = 0                               # which features are hidden
+NORM          = True                            # standardize the features
 
-# pclr: cfi's frequencies and the iterations of l-bfgs
-N_FREQ   = 64
-MAX_ITER = 1000
+N_FREQ = 64                                     # cfi's frequencies
 
-# the learning curve: its number of features and missing rate, the numbers of training
-# points (powers of 2, evenly spaced on a log axis, nested subsets of one dataset) and the
-# test points
-CURVE_FEATURES = 100
+CURVE_FEATURES = 100                            # the setting of the learning curve
 CURVE_RATE     = 0.3
-N_TRAINS       = [2 ** k for k in range(8, 15)]
-CURVE_TEST     = 5000
+N_TRAINS       = [2 ** k for k in range(8, 15)] # its numbers of training points, each the first points of one dataset
+CURVE_TEST     = 5000                           # its test points
 
-# the end of the names of the figures, the json and the cached densities: standardized
-# features are the default and get no suffix, raw ones _raw
-NORM_SUFFIX = "" if NORM else "_raw"
+NORM_SUFFIX = "" if NORM else "_raw"            # the end of the file names
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ── models ────────────────────────────────────────────────────────────────────
 
-# the main comparison, every model trained on every setting (comment one out to skip it):
-# the reference (the lr without missing values, trained and tested on complete points), the
-# imputations, and pclr (the density and w jointly, the density starting untrained)
+# the main comparison (comment a model out to skip it)
 MODELS = {
     "Complete data":    CompleteData(),
     "Mean imputation":  MeanImputation(),
     "Conditional mean imputation": ConditionalMeanImputation(),
-    "PCLR":             PCLR(n_freq=N_FREQ, max_iter=MAX_ITER),
+    "PCLR":             PCLR(n_freq=N_FREQ),
 }
 
-# the variants of pclr: the density starting untrained (the pclr above), starting from the
-# fitted density, and the fitted density kept fixed (only w trained)
+# pclr with the three ways to handle its density
 PCLR_VARIANTS = {
-    "PCLR":               PCLR(n_freq=N_FREQ, max_iter=MAX_ITER),
-    "PCLR fitted start":  PCLR(n_freq=N_FREQ, max_iter=MAX_ITER, start="fitted"),
-    "PCLR fixed density": PCLR(n_freq=N_FREQ, max_iter=MAX_ITER, train_density=False),
+    "PCLR":               PCLR(n_freq=N_FREQ),
+    "PCLR fitted start":  PCLR(n_freq=N_FREQ, density_mode="fitted"),
+    "PCLR fixed density": PCLR(n_freq=N_FREQ, density_mode="fixed"),
 }
 
 # ── experiments ───────────────────────────────────────────────────────────────
 
-# the comparison: for every number of features and missing rate, the data, the density
-# fit on the incomplete training points, and every model of models trained and scored.
-# saved and drawn against the number of features, the names starting with prefix
+# trains and scores every model in every setting, then saves the scores and draws them
+# against the number of features. prefix starts the file names
 def comparison(models, prefix):
     scores = {}
     for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
         setting = (n_features, missing_rate)
 
-        # the data, and the density fit on the incomplete training points alone
+        # the density is fit on the incomplete training points alone, as a model would see them
         x_train, x_missing, y_train, x_test, x_test_missing, y_test = load_data(n_features, missing_rate, INFORMATIVE, SEED, device, standardize=NORM, redundant=REDUNDANT)
         cache = f"cache/train/{MODEL}/K{K}_{n_features}features_{INFORMATIVE}informative_{REDUNDANT}redundant_{missing_rate}missing_seed{SEED}{NORM_SUFFIX}.pt"
         px = fit_density(MODEL, x_missing, cache, device, K)
 
-        # every model trained on the incomplete training points, scored on complete test
-        # points and on incomplete ones with its own prediction rule. the reference is
-        # trained and tested on the complete points
+        # the reference is trained and tested on the complete points, every other model on the incomplete ones
         scores[setting] = {}
         for name, model in models.items():
             if isinstance(model, CompleteData):
@@ -104,10 +82,9 @@ def comparison(models, prefix):
     compare_training(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", prefix, NORM_SUFFIX)
 
 
-# the learning curve: the largest dataset once, every number of training points its first
-# n points with its own density, every model of models trained and scored on the same
-# incomplete test points. saved and drawn against the number of training points, the
-# names starting with prefix
+# trains and scores every model on more and more training points of one setting, all on
+# the same incomplete test points, then saves the scores and draws them. prefix starts
+# the file names
 def learning_curve(models, prefix):
     n = N_TRAINS[-1] + CURVE_TEST
     x_train_all, x_missing_all, y_train_all, x_test, x_test_missing, y_test = load_data(
@@ -116,12 +93,12 @@ def learning_curve(models, prefix):
     print(f"\nlearning curve, {CURVE_FEATURES} features, {CURVE_RATE:.0%} missing")
     for n_train in N_TRAINS:
 
-        # the first n_train training points, and the density fit on them
+        # the first training points, with a density fit on them
         x_train, x_missing, y_train = x_train_all[:n_train], x_missing_all[:n_train], y_train_all[:n_train]
         cache = f"cache/train/{MODEL}/K{K}_curve_{CURVE_FEATURES}features_{INFORMATIVE}informative_{REDUNDANT}redundant_{CURVE_RATE}missing_{n_train}points_seed{SEED}{NORM_SUFFIX}.pt"
         px = fit_density(MODEL, x_missing, cache, device, K)
 
-        # every model, as in the comparison, scored on the incomplete test points
+        # as in the comparison
         scores = {}
         for name, model in models.items():
             if isinstance(model, CompleteData):
@@ -141,7 +118,7 @@ def learning_curve(models, prefix):
 
 # ── run ───────────────────────────────────────────────────────────────────────
 
-# the pclr variants, then the main comparison (comment a line out to skip it)
+# comment a line out to skip it
 comparison(PCLR_VARIANTS, "pclr_variants_")
 learning_curve(PCLR_VARIANTS, "pclr_variants_")
 
