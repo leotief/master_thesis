@@ -27,9 +27,8 @@ DATASETS      = ["magic", "phoneme", "spambase", "banknote", "qsar", "pima"]
 MISSING_RATES = [0.1, 0.3, 0.5]
 SEEDS         = range(5)
 
-# pclr: cfi's frequencies, the weight of the label term, and the iterations of l-bfgs
+# pclr: cfi's frequencies and the iterations of l-bfgs
 N_FREQ   = 64
-LAMBDA   = 1.0
 MAX_ITER = 1000
 
 # the reference (not bold in the tables), and the column of every model in the tables
@@ -63,7 +62,7 @@ MODELS = {
     "Conditional mean imputation": ConditionalMeanImputation(),
     "MICE":                  MICE(),
     "Generative classifier": GenerativeClassifier(K),
-    "PCLR":                  PCLR(n_freq=N_FREQ, lam=LAMBDA, max_iter=MAX_ITER),
+    "PCLR":                  PCLR(n_freq=N_FREQ, max_iter=MAX_ITER),
 }
 
 # ── comparison ────────────────────────────────────────────────────────────────

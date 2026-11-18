@@ -13,7 +13,7 @@ import torch
 
 from pclr import cfi
 from utils.baselines import conditional_mean_imputation, conditional_sampling, mean_imputation, mixture_adaptive_quad
-from utils.data import load_data
+from utils.data import INFORMATIVE, REDUNDANT, load_data
 from utils.experiments import compare_estimates, fit_density, logistic_regression, score_methods
 from utils.plots import plot_cfi_frequencies, plot_estimate_comparison
 
@@ -23,16 +23,17 @@ from utils.plots import plot_cfi_frequencies, plot_estimate_comparison
 MODEL = "gmm"
 K     = 4
 
-# the settings: every number of features (INFORMATIVE of them informative, the
-# others noise), evenly spaced on a log axis from 5 to 5000, with every
-# probability of an entry of a test point to be missing
+# the settings: every number of features (the split into informative, redundant and noise
+# features, INFORMATIVE and REDUNDANT, is that of every experiment, in utils/data.py),
+# evenly spaced on a log axis from 5 to 5000, with every probability of an entry of a test
+# point to be missing
 FEATURES      = [round(5 * 10 ** (k / 2)) for k in range(7)]
 MISSING_RATES = [0.1, 0.3, 0.5]
-INFORMATIVE   = 0.5
 SEED          = 0
 
-# standardize the features (cfi does not need it: it adapts to the spread of z)
-NORM = False
+# standardize the features, as in every experiment (cfi does not need it, it adapts to the
+# spread of z, but the logistic regression converges and the data is treated as real data)
+NORM = True
 
 # the counts of the comparison: the samples of conditional sampling and cfi's frequencies
 N_SAMPLES = 1000
@@ -42,10 +43,11 @@ CFI_FREQS = 40
 CFI_FREQUENCIES = True
 CFI_COUNTS      = [8, 16, 32, 64]
 
-# the end of the names of the figures: the settings they depend on, every value with its name
-NORM_SUFFIX = "_norm" if NORM else ""
-ESTIMATORS_SUFFIX  = f"_{INFORMATIVE}informative_{N_SAMPLES}samples_{CFI_FREQS}freqs{NORM_SUFFIX}"
-FREQUENCIES_SUFFIX = f"_{INFORMATIVE}informative{NORM_SUFFIX}"
+# the end of the names of the figures: the settings they depend on, every value with its
+# name. standardized features are the default and get no suffix, raw ones _raw
+NORM_SUFFIX = "" if NORM else "_raw"
+ESTIMATORS_SUFFIX  = f"_{N_SAMPLES}samples_{CFI_FREQS}freqs{NORM_SUFFIX}"
+FREQUENCIES_SUFFIX = NORM_SUFFIX
 
 # the kl is over the first N_TEST test points (the exact value is slow), the
 # time is the median of TIME_REPEATS calls on all test points
@@ -63,10 +65,10 @@ scores, cfi_scores = {}, {}
 for n_features, missing_rate in itertools.product(FEATURES, MISSING_RATES):
 
     # the training points (complete) and the test points, every entry hidden (nan) with probability missing_rate
-    x_train, _, y_train, _, x_test_missing, _ = load_data(n_features, missing_rate, INFORMATIVE, SEED, device, standardize=NORM)
+    x_train, _, y_train, _, x_test_missing, _ = load_data(n_features, missing_rate, INFORMATIVE, SEED, device, standardize=NORM, redundant=REDUNDANT)
 
     # fit on complete points. the density only depends on the number of features (and NORM)
-    px = fit_density(MODEL, x_train, f"cache/estimate/{MODEL}/K{K}_{n_features}features_{INFORMATIVE}informative{NORM_SUFFIX}.pt", device, K)
+    px = fit_density(MODEL, x_train, f"cache/estimate/{MODEL}/K{K}_{n_features}features_{INFORMATIVE}informative_{REDUNDANT}redundant{NORM_SUFFIX}.pt", device, K)
     w = logistic_regression(x_train, y_train)
 
     # the methods, every one called as method(first, w, x_partial, **settings). first is the

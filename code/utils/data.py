@@ -38,6 +38,14 @@ def classification(features, informative=None, samples=10_000, test_size=0.2, se
     return x_train, x_test, y_train, y_test
 
 
+# the split of the features of the synthetic data, the same in every experiment: a quarter
+# informative, half linear combinations of those (redundant), a quarter noise. so the
+# features are strongly correlated and the signal lives in a low-dimensional subspace, as
+# in most tabular data, and the observed features say something about the missing ones
+INFORMATIVE = 0.25
+REDUNDANT   = 0.5
+
+
 # a copy of the point x (D,) or the points x (B, D) (numpy) with int(missing_rate
 # * D) of the features of every point set to nan, chosen at random by rng for
 # every point
@@ -60,7 +68,7 @@ def hide_entries(x, missing_rate, rng):
 
 
 # the classification data with n_features features, informative of them
-# informative and the others noise, samples points of which a fraction test_size
+# informative, redundant linear combinations of those and the others noise, samples points of which a fraction test_size
 # are test points (by default 8000 training and 2000 test points), standardized
 # or not, every entry hidden with probability missing_rate (hide_entries). the
 # points are the same for every seed, which features are hidden is not. returns the training points (complete and incomplete), their labels, the

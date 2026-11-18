@@ -41,10 +41,12 @@ The introduction leads with this framing. The experiments (estimation accuracy a
 Why PGHS was replaced: its inner integral carries a factor e^{1/(8γ)} that cancels catastrophically for small γ (and makes the MC variant have infinite variance), and the sum of Gaussian bells approximates the sigmoid badly for large positive z, which the sign flip only fixes when p(z | x_obs) lies on one side of 0. So PGHS breaks down for a wide p(z | x_obs), i.e. many missing features. CFI has neither problem.
 
 **Figures in the paper** (`figure*`, written to `paper/figures/` at the ICML text width by `code/estimate.py` and `code/train.py`):
-- `estimate/gmm/estimators_0.5informative_1000samples_40freqs.pdf` (`fig:estimators`) — CFI vs. MC vs. conditional mean and mean imputation, KL and time against the number of features;
-- `estimate/gmm/cfi_frequencies_0.5informative.pdf` (`fig:cfi-frequencies`) — CFI with 8–64 frequencies;
-- `train/gmm/complete_test_0.25informative_0.25redundant_1.0lambda.pdf` (`fig:training-complete`) — the training comparison on complete test points;
-- `train/gmm/pclr_variants_incomplete_test_0.25informative_0.25redundant_1.0lambda.pdf` (`fig:pclr-variants`) — the PCLR variants on incomplete test points.
+- `estimate/gmm/estimators_1000samples_40freqs.pdf` (`fig:estimators`) — CFI vs. MC vs. conditional mean and mean imputation, KL and time against the number of features;
+- `estimate/gmm/cfi_frequencies.pdf` (`fig:cfi-frequencies`) — CFI with 8–64 frequencies;
+- `train/gmm/complete_test.pdf` (`fig:training-complete`) — the training comparison on complete test points;
+- `train/gmm/pclr_variants_incomplete_test.pdf` (`fig:pclr-variants`) — the PCLR variants on incomplete test points.
+
+The synthetic data has one feature split in every experiment (`INFORMATIVE`, `REDUNDANT` in `code/utils/data.py`): 1/4 informative, 1/2 linear combinations of those, 1/4 noise, chosen so that the features are strongly correlated and low-dimensional, as in most tabular data. It is fixed; don't tune it further. Results of earlier splits are kept in subfolders named by the split (`0.5informative_0.0redundant/`, the low-correlation control for the appendix, and `0.25informative_0.25redundant/`). All four paper figures are from the fixed split with standardized features (files without a suffix are standardized, `_raw` ones raw).
 
 The other figures of the scripts (the training comparison on incomplete test points, the learning curves, the variants on complete test points) are written to `paper/figures/` too, but not used so far.
 

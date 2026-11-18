@@ -15,16 +15,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class PCLR(nn.Module):
-    # n_freq are cfi's frequencies, lam the weight of the label term, C the l2 penalty (as
+    # n_freq are cfi's frequencies, C the l2 penalty (as
     # in sklearn), eps the clamp of the predictions in the loss, train_density whether the
     # density is trained together with w or kept as it is, max_iter the iterations of
     # l-bfgs, start where the trained density starts: an untrained one ("untrained", a gmm
     # of the same size) or the fitted density given to fit ("fitted"). with the density
     # fixed it is always the fitted one
-    def __init__(self, n_freq=100, lam=1.0, C=1.0, eps=1e-6, train_density=True, max_iter=1000, start="untrained"):
+    def __init__(self, n_freq=100, C=1.0, eps=1e-6, train_density=True, max_iter=1000, start="untrained"):
         super().__init__()
         self.n_freq = n_freq
-        self.lam, self.C, self.eps = lam, C, eps
+        self.C, self.eps = C, eps
         self.train_density, self.max_iter, self.start = train_density, max_iter, start
 
     # log-density of the observed features
@@ -47,7 +47,7 @@ class PCLR(nn.Module):
     # scaled to one of n_train points
     def objective(self, x_partial, y, n_train):
         log_density, log_label = self.log_likelihood(x_partial, y)
-        return -(log_density + self.lam * log_label) + self.w.square().sum() / (2 * self.C * n_train)
+        return -(log_density + log_label) + self.w.square().sum() / (2 * self.C * n_train)
 
     # the density and w jointly, or only w with the density kept as it is (train_density),
     # by l-bfgs on all training points at once until it converges, like sklearn for a

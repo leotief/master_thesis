@@ -1,65 +1,10 @@
 \section{Evaluating the Integral in Detail}
 \label{app:integral}
 
-\paragraph{Trapezoid rule.}
-We approximate the integral of $g$ from \eqref{eq:cfi} with step $h$ and $K$ nodes $s_k = kh$. Every node gets the weight $h$, except $s_0 = 0$, which gets $h/2$.
-For small $s$ we have $\mathrm{Im}\, \phi_z(s) \approx s\, \E[z \mid \xo]$ and $\sinh(\pi s) \approx \pi s$, so $g(0) = \mu_z / \pi$, which gives the term $\frac{\mu_z}{2\pi}$ in \eqref{eq:trapezoid}.
-The integrand is smooth, so the trapezoid rule converges exponentially fast in the number of nodes.
-Two things have to be chosen: where to stop, $S = Kh$, and the step $h$.
-
-\paragraph{Truncation.}
-Since $|\phi_z| \leq 1$, the part of the integral beyond $S$ is bounded independently of the density:
-\[
-  \int_S^\infty \frac{\mathrm{d}s}{\sinh(\pi s)} = \frac{1}{\pi} \log \coth \frac{\pi S}{2} \approx \frac{2}{\pi} e^{-\pi S}.
-\]
-For $S = 12$ this is about $3 \cdot 10^{-17}$, which is below double precision, so we never need frequencies beyond $S = 12$.
-
-\paragraph{Step size.}
-For a fixed $z$, the trapezoid sum $h \sum_k \frac{\sin(khz)}{\sinh(\pi kh)}$ is periodic in $z$ with period $\frac{2\pi}{h}$.
-So it can only approximate the sigmoid on one period, roughly for $|z| < \frac{\pi}{h}$, and outside of it the sum repeats instead of staying close to $0$ or $1$.
-The expected prediction is therefore accurate as long as $p(z \mid \xo)$ has nearly all its mass within $|z| < \frac{\pi}{h}$.
-In \eqref{eq:step}, the period covers $\mu_z \pm 6\sigma_z$, with a margin of $1$ for the width of the sigmoid itself, and the nodes reach $S$.
-If the first term is the smaller one, the nodes stop before $S$. For a wide $p(z \mid \xo)$ this does not matter, since the CF then decays quickly. For a narrow $p(z \mid \xo)$ far away from zero, $K$ has to be large enough:
-\[
-  K \geq S (|\mu_z| + 6\sigma_z + 1) / \pi.
-\]
-The step only affects the error and not the value that is approximated, so it can be chosen for every point separately, and it needs no gradient in training.
-The mean and variance of $z$ follow from the mean and covariance of the missing features,
-\[
-  \mu_z = w_o^T \xo + w_m^T \E[\xm \mid \xo], \qquad \sigma_z^2 = w_m^T\, \mathrm{Cov}[\xm \mid \xo]\, w_m,
-\]
-which are tractable for GMMs and PCs (\cref{app:density}).
-
-\paragraph{Cost.}
-The method needs $K$ evaluations of the CF per point. All of them are at multiples $s_k w_m$ of the same vector, so they can be done in one batched pass through the density, plus one pass for the moments. In our experiments $K = 40$ is enough. % TODO check against the frequency plot
-
-\section{Characteristic Function and Moments of the Density}
+\section{Characteristic Function of the Density}
 \label{app:density}
 
 \paragraph{Probabilistic circuits.}
-A PC is a computational graph of sum nodes, product nodes and leaves, where every leaf is a simple distribution over a single feature \citep{pc_intro, spn}.
-If the circuit is smooth and decomposable, the expectation of any function that factorises over the features, $f(x) = \prod_d f_d(x_d)$, is computed in one pass, with every leaf replaced by $\E_{\text{leaf}}[f_d(x_d)]$.
-A GMM with diagonal covariances is the simplest such circuit, a single sum node over products of Gaussian leaves.
-
-\paragraph{The conditional CF of a PC.}
-The CF is the expectation of $e^{i s^T x} = \prod_d e^{i s_d x_d}$, which factorises over the features, so a PC computes it in one pass \citep{yu2023characteristic}:
-\[
-  \phi_{\xm \mid \xo}(s) = \frac{1}{p(\xo)} \int e^{i s^T \xm}\, p(\xo, \xm)\, \mathrm{d}\xm.
-\]
-Every leaf of an observed feature returns its density at $x_d$, and every leaf of a missing feature returns its own CF at $s_d$. For a Gaussian leaf this is $\exp(i s_d \mu_d - \frac{1}{2} s_d^2 \sigma_d^2)$, and for a categorical leaf $\sum_v p(x_d{=}v)\, e^{i s_d v}$.
-Evaluating the circuit bottom-up gives $\int e^{i s^T \xm} p(\xo, \xm)\, \mathrm{d}\xm = p(\xo)\, \phi_{\xm \mid \xo}(s)$, and dividing by $p(\xo)$ gives the conditional CF.
-The values are complex, and products over many leaves can underflow, so we evaluate the circuit in log space, where products become sums and sums become a complex log-sum-exp.
-
-\paragraph{The moments of $z$ in a PC.}
-The mean and variance of $z$ are computed with the same kind of pass.
-Every node $n$ carries three numbers: its value $P_n$, as in the marginal likelihood, and the first and second moments $M_n = \int z_n\, p_n$ and $Q_n = \int z_n^2\, p_n$ of the part $z_n$ of $z$ over its scope.
-A sum node takes the weighted sums of the three numbers of its children.
-For a product node with children $a$ and $b$, we have $z_n = z_a + z_b$ with independent parts, so
-\[
-  P_n = P_a P_b, \qquad M_n = M_a P_b + P_a M_b, \qquad Q_n = Q_a P_b + 2 M_a M_b + P_a Q_b.
-\]
-A leaf of an observed feature has $P = p(x_d)$, $M = w_d x_d\, p(x_d)$ and $Q = w_d^2 x_d^2\, p(x_d)$, and a Gaussian leaf of a missing feature has $P = 1$, $M = w_d \mu_d$ and $Q = w_d^2 (\sigma_d^2 + \mu_d^2)$.
-At the root, $\mu_z = M / P$ and $\sigma_z^2 = Q / P - \mu_z^2$.
 
 \paragraph{Diagonal GMM.}
 For a GMM with diagonal covariances, the pass reduces to the closed form

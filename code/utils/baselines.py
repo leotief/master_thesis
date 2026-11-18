@@ -1,6 +1,7 @@
 # the baselines: estimators (the prediction part, estimate.py) and models (training plus
 # an estimator to predict with, train.py)
 
+import copy
 import warnings
 from functools import lru_cache
 
@@ -61,12 +62,15 @@ def mixture_gauss_hermite(density, w, x_partial, n_nodes=50):
 
 
 # the integral of every component by scipy's adaptive quadrature, the reference: accurate
-# for any spread, but point by point and without gradients. density needs z_mixture
+# for any spread, but point by point and without gradients. density needs z_mixture. all in
+# float64, also the mixture of z (a copy of the density in float64): in float32 its sums over
+# thousands of features are only accurate to about 1e-5
 @torch.no_grad()
 def mixture_adaptive_quad(density, w, x_partial, epsrel=1e-12):
     if x_partial.dim() == 2:
-        return torch.stack([mixture_adaptive_quad(density, w, x, epsrel) for x in x_partial])
-    mix, m, v = (t.double().cpu().numpy() for t in density.z_mixture(w, x_partial))
+        density64 = copy.deepcopy(density).double()
+        return torch.stack([mixture_adaptive_quad(density64, w.double(), x.double(), epsrel) for x in x_partial])
+    mix, m, v = (t.double().cpu().numpy() for t in density.z_mixture(w.double(), x_partial.double()))
     per_component = []
     for m_k, s_k in zip(m, np.sqrt(v)):
         # nothing missing: z is known
@@ -161,4 +165,4 @@ class GenerativeClassifier:
         return self
 
     def predict(self, x_test):
-        return torch.softmax(self.px.component_log_probs(x_test), dim=-1) @ torch.sigmoid(self.label_logits)
+        return self.px.posterior_weights(x_test) @ torch.sigmoid(self.label_logits)

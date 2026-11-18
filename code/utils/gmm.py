@@ -39,21 +39,25 @@ class GMM(nn.Module):
 
     # the log-likelihood of the observed features of every point, what fit maximises
     def forward(self, x):
-        return torch.logsumexp(self.component_log_probs(x), dim=-1)
+        return torch.logsumexp(self.component_log_probs(x), dim=-1).to(x.dtype)
 
     # one number per point and component: how likely it is that the point came from that
     # component and has these observed features, as a log. forward sums it over the
-    # components, posterior_weights normalises it
+    # components, posterior_weights normalises it. in float64: it is a sum over all observed
+    # features, in the thousands for many features, and in float32 the small differences
+    # between the components get lost (at 5000 features the posterior weights were off by
+    # 1e-3, which cost cfi its precision). the matrix products are small, so it costs little
     def component_log_probs(self, x):
-        observed = (~torch.isnan(x)).float()
+        x = x.double()
+        observed = (~torch.isnan(x)).double()
         x = torch.nan_to_num(x)
-        variances = self.variances()
+        means, variances = self.means.double(), self.variances().double()
         precisions = 1 / variances
         # distances of the points to the means over the observed features, multiplied out
         # into matrix products so no point × component × feature tensor is built
-        distances = (observed * x**2) @ precisions.T - 2 * (observed * x) @ (self.means * precisions).T + observed @ (self.means**2 * precisions).T
+        distances = (observed * x**2) @ precisions.T - 2 * (observed * x) @ (means * precisions).T + observed @ (means**2 * precisions).T
         normalisation = observed @ torch.log(2 * math.pi * variances).T
-        return torch.log_softmax(self.pi, dim=-1) - 0.5 * (distances + normalisation)
+        return torch.log_softmax(self.pi.double(), dim=-1) - 0.5 * (distances + normalisation)
 
     
     # how much each component counts for a point once its observed features are known.
@@ -61,7 +65,7 @@ class GMM(nn.Module):
     def posterior_weights(self, x_obs=None):
         if x_obs is None:
             return torch.softmax(self.pi, dim=-1)
-        return torch.softmax(self.component_log_probs(x_obs), dim=-1)
+        return torch.softmax(self.component_log_probs(x_obs), dim=-1).to(x_obs.dtype)
 
     # samples of the missing features given the observed ones, as complete points with the
     # observed values kept. the monte carlo baseline averages the prediction over them

@@ -61,9 +61,9 @@ It \dots
 \section{Characteristic Function Inversion}
 \label{sec:cfi}
 
-We found three observations that help us get around this problem.
+There are three observations we made that helped us get around this problem.
 First, the sigmoid depends on $x$ only through the score $z$, which is a single number.
-Second, the sigmoid is the CDF of the logistic distribution, so the expected prediction is a probability, namely the probability that $z$ is larger than a logistic random variable.
+Second, the sigmoid is the cumulative distribution function (CDF) of the logistic distribution, so the expected prediction is a probability, namely the probability that $z$ is larger than a logistic random variable.
 Third, such a probability can be computed from the characteristic function (CF) of $z$, and unlike the expectation of the sigmoid, the CF is easy to compute with a PC.
 
 \subsection{From the Sigmoid to the Characteristic Function}
@@ -71,210 +71,175 @@ Third, such a probability can be computed from the characteristic function (CF) 
 
 \paragraph{The sigmoid as a probability.}
 The sigmoid is the CDF of the standard logistic distribution: for $L \sim \mathrm{Logistic}(0, 1)$, we have $\sigma(t) = P(L \leq t)$.
-We take $L$ independent of $x$ and insert this into the expected prediction:
+We take $L$ independent of $x$ and insert it into the expected prediction:
+\[
+  p(y{=}1 \mid \xo) = \E_{\xm \mid \xo}\left[ P(L \leq z \mid x) \right].
+\]
+Inside the expectation, $\xm$ is fixed, and the probability is only over $L$.
+The expectation then averages this probability over all values of $\xm$, weighted by how likely they are.
+By the law of total probability, this average is the probability of the same event when $\xm$ is random as well:
 \begin{align*}
-  p(y{=}1 \mid \xo) &= \E\left[ P(L \leq z) \mid \xo \right] \\
+  \E_{\xm \mid \xo}\left[ P(L \leq z \mid x) \right] &= P(L \leq z \mid \xo) \\
   &= P(z - L > 0 \mid \xo).
 \end{align*}
-So the LR predicts $y = 1$ when $z$ is larger than a random threshold $L$.
-With missing features, $z$ is random too, and we need the probability that $z - L$ is positive.
+So the probability of $y = 1$, which is the quantity we want, equals the probability of $z - L$ being larger than $0$.
 
-\paragraph{From the CF to the probability.}
-The probability that a variable $Y$ is positive can be computed from its CF $\phi_Y(s) = \E[e^{isY}]$, with the Gil-Pelaez formula \citep{gilpelaez1951}:
+\paragraph{Gil-Pelaez Inversion.}
+This can be computed using the Gil-Pelaez formula \citep{gilpelaez1951}. In general, it gives the probability that a continuous random variable $Y$ is positive, using only its CF $\phi_Y(s) = \E[e^{isY}]$:
 \[
   P(Y > 0) = \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\mathrm{Im}\, \phi_Y(s)}{s} \, \mathrm{d}s.
 \]
-The idea behind it is that the step function $\mathbf{1}[Y > 0]$ can be written as a sum of sine waves $\sin(sY)$, and the expectation of each wave is $\mathrm{Im}\, \phi_Y(s)$.
-For $Y = z - L$, the CF is the product of the CFs of $z$ and $-L$, since the two are independent.
-The CF of $L$ is known, $\pi s / \sinh(\pi s)$, and it is symmetric in $s$, so
-\[
-  \phi_{z - L}(s) = \phi_z(s)\, \frac{\pi s}{\sinh(\pi s)}.
-\]
-Inserting this into the formula, the $s$ cancels:
-\begin{equation}
-  p(y{=}1 \mid \xo) = \frac{1}{2} + \int_0^\infty \frac{\mathrm{Im}\, \phi_z(s)}{\sinh(\pi s)} \, \mathrm{d}s.
-  \label{eq:gil-pelaez}
-\end{equation}
-This is exact.
-As a check, without missing features $z$ is fixed, $\mathrm{Im}\, \phi_z(s) = \sin(sz)$, and the integral gives back $\sigma(z)$.
+We want to take $Y = z - L$, so we need $\phi_{z - L}(s)$, i.e. the CF of the difference $z - L$. 
 
-\paragraph{The CF of $z$.}
-What is left is the CF of $z$, the expectation of the wave $e^{isz}$.
-Unlike the sigmoid, the wave turns the sum in $z$ into a product, with one factor per feature:
-\[
-  e^{isz} = e^{i s w_o^T \xo} \prod_{d \in m} e^{i s w_d x_d}.
-\]
-The factor of the observed features is fixed and comes out of the expectation:
+\paragraph{The characteristic function of $z-L$.}
+Since $z$ and $L$ are independent, 
+the expectation of $e^{is(z - L)} = e^{isz}\, e^{-isL}$ splits into one expectation (or CF) each. One over $z$ and one over $L$:
+\begin{align}
+  \phi_{z - L}(s) &= \E\left[ e^{isz} \mid \xo \right] \E\left[ e^{-isL} \right] \notag \\
+  &= \phi_z(s)\, \phi_L(-s).
+  \label{eq:cf-diff}
+\end{align}
+
+The CF of $L$ is known in closed form:
+\begin{equation}
+  \phi_L(s) = \frac{\pi s}{\sinh(\pi s)}.
+  \label{eq:cf-logistic}
+\end{equation}
+It is symmetric in $s$, so $\phi_L(-s) = \phi_L(s)$.
+
+The CF of $z$, $\phi_z(s)$, can be split into the observed part $w_o^T \xo$ and the missing part $w_m^T \xm$.
+The observed part is fixed and comes out of the expectation:
 \begin{align}
   \phi_z(s) &= \E\left[ e^{isz} \mid \xo \right] \notag \\
-  &= e^{i s w_o^T \xo}\, \phi_{\xm \mid \xo}(s w_m).
+  &= e^{i s w_o^T \xo}\, \E\left[ e^{i s w_m^T \xm} \mid \xo \right] \notag \\
+  &= e^{i s w_o^T \xo}\, \phi_{\xm \mid \xo}(s w_m),
   \label{eq:cf-z}
 \end{align}
-Here $\phi_{\xm \mid \xo}(t) = \E[e^{i t^T \xm} \mid \xo]$ is the CF of the missing features given the observed ones.
-It is the expectation of a product over the features, so the PC computes it in one pass (\cref{sec:circuit-cf}).
+where $\phi_{\xm \mid \xo}$ is the conditional CF of the missing features given the observed ones.
+A PC can compute this in one pass (details in \cref{app:density}).
 
 \paragraph{The full formula.}
-Putting \eqref{eq:cf-z} into \eqref{eq:gil-pelaez} gives our method, \emph{characteristic-function inversion} (CFI):
+We insert the CFs from \eqref{eq:cf-diff}, \eqref{eq:cf-logistic} and \eqref{eq:cf-z} into the Gil-Pelaez formula:
 \begin{align}
-  p(y{=}1 \mid \xo) &= \frac{1}{2} + \int_0^\infty g(s) \, \mathrm{d}s, \label{eq:cfi} \\
-  g(s) &= \frac{1}{\sinh(\pi s)}\, \mathrm{Im} \left[ e^{i s w_o^T \xo}\, \phi_{\xm \mid \xo}(s w_m) \right]. \notag
+  p(y{=}1 \mid \xo) &= \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\mathrm{Im}\, \phi_{z - L}(s)}{s} \, \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\mathrm{Im} \left[ \phi_z(s)\, \phi_L(-s) \right]}{s} \, \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \frac{1}{\pi} \int_0^\infty \frac{\pi s}{\sinh(\pi s)}\, \frac{\mathrm{Im}\, \phi_z(s)}{s} \, \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \int_0^\infty \frac{\mathrm{Im}\, \phi_z(s)}{\sinh(\pi s)} \, \mathrm{d}s \notag \\
+  &= \frac{1}{2} + \int_0^\infty \frac{\mathrm{Im} \left[ e^{i s w_o^T \xo}\, \phi_{\xm \mid \xo}(s w_m) \right]}{\sinh(\pi s)} \, \mathrm{d}s. \label{eq:cfi}
 \end{align}
-In words, the formula writes the sigmoid as a sum of sine waves, and the PC gives the expectation of every wave.
-
-\subsection{The Characteristic Function of a Circuit}
-\label{sec:circuit-cf}
-
-The CF is the expectation of a product over the features, so the PC computes it in one pass \citep{yu2023characteristic}.
-The leaves of the observed features return their density.
-The leaves of the missing features return their own CF.
-For a Gaussian leaf this is $\exp(i t_d \mu_d - \frac{1}{2} t_d^2 \sigma_d^2)$.
-The result is $p(\xo)\, \phi_{\xm \mid \xo}(t)$, so we divide by $p(\xo)$.
-We compute everything in log space to avoid underflow.
-The details are in \cref{app:density}.
+This is our main method, \emph{characteristic-function inversion} (CFI).
 
 \subsection{Evaluating the Integral}
 \label{sec:cfi-integral}
 
-The integral has no closed form, so we approximate it with the trapezoid rule.
-We use $K$ nodes $s_k = kh$ with step $h$:
+The integral in \eqref{eq:cfi} has no closed form, so we approximate it with the trapezoid rule, with $K$ points $s_k = kh$ and step $h$:
 \begin{equation}
-  p(y{=}1 \mid \xo) \approx \frac{1}{2} + h \left( \frac{\mu_z}{2\pi} + \sum_{k=1}^{K} g(kh) \right).
+  p(y{=}1 \mid \xo) \approx \frac{1}{2} + h \left( \frac{\mu_z}{2\pi} + \sum_{k=1}^{K} g(kh) \right),
   \label{eq:trapezoid}
 \end{equation}
-Here $\mu_z = \E[z \mid \xo]$, and the first term comes from the node at $s = 0$.
-This converges very fast, because the integrand is smooth.
-We can stop at $S = 12$, because the rest of the integral is below $10^{-16}$.
-The step $h$ matters more.
-The sum repeats in $z$ with period $2\pi / h$, so it only works if $z$ stays within $|z| < \pi / h$.
-So we choose $h$ for each point from the mean $\mu_z$ and the standard deviation $\sigma_z$ of $z$:
+where $g$ is the integrand and $\mu_z = \E[z \mid \xo]$.
+The points stop at $S = 12$, where the rest of the integral is below $10^{-16}$.
+The step is chosen for every point from the mean $\mu_z$ and the standard deviation $\sigma_z$ of $z$, so that the sum covers all likely values of $z$:
 \begin{equation}
   h = \min \left( \frac{\pi}{|\mu_z| + 6 \sigma_z + 1}, \frac{S}{K} \right).
   \label{eq:step}
 \end{equation}
-The PC also computes $\mu_z$ and $\sigma_z$ in one pass.
-The step does not change the value we approximate, so it needs no gradient.
-\Cref{alg:cfi} sums up CFI, and \cref{app:integral} gives the details.
+The details are in \cref{app:integral}.
 
-\begin{algorithm}[tb]
-  \caption{CFI}
-  \label{alg:cfi}
-  \begin{algorithmic}
-    \STATE {\bfseries Input:} weights $w$, observed features $\xo$, PC $p$, number of nodes $K$, $S = 12$
-    \STATE $\mu_z \gets \E[z \mid \xo]$, $\sigma_z \gets \sqrt{\mathrm{Var}[z \mid \xo]}$
-    \STATE $h \gets \min \left( \pi / (|\mu_z| + 6 \sigma_z + 1), S / K \right)$
-    \FOR{$k = 1$ {\bfseries to} $K$}
-    \STATE $\phi_k \gets e^{i kh\, w_o^T \xo}\, \phi_{\xm \mid \xo}(kh\, w_m)$
-    \ENDFOR
-    \STATE $p \gets \frac{1}{2} + h \left( \frac{\mu_z}{2\pi} + \sum_{k=1}^{K} \frac{\mathrm{Im}\, \phi_k}{\sinh(\pi k h)} \right)$
-    \STATE {\bfseries Output:} $p$
-  \end{algorithmic}
-\end{algorithm}
 
-\section{Training the Joint Model on Incomplete Data}
+\section{A Joint Model: PCLR}
 \label{sec:training}
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/estimate/gmm/estimators_0.5informative_1000samples_40freqs.pdf}
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/estimators_1000samples_40freqs.pdf}
   \caption{Estimating the expected prediction under a fitted GMM with $w$ fixed: CFI with 40 frequencies, MC with 1000 samples from the conditional, conditional mean imputation and mean imputation. Top: the KL divergence to the exact expected prediction; bottom: the time for all test points. Against the number of features, one column per missing rate.}
   \label{fig:estimators}
 \end{figure*}
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/estimate/gmm/cfi_frequencies_0.5informative.pdf}
+  \includegraphics[width=\textwidth]{figures/estimate/gmm/cfi_frequencies.pdf}
   \caption{CFI with 8 to 64 frequencies, in the setting of \cref{fig:estimators}. Top: the KL divergence to the exact expected prediction; bottom: the time for all test points.}
   \label{fig:cfi-frequencies}
 \end{figure*}
 
-\paragraph{PCLR.}
-So far, $w$ was trained on complete data, and features were only missing at test time.
-In practice the training data is often incomplete as well.
-We therefore treat the PC and the LR as one joint model of the features and the label, and train both on the incomplete data:
+The simplest use case for CFI would be where features are missing at test time. With an already trained 
+LR and a density model we can accurately calculate the expected prediction. Experiments show that it is orders of magnitude more 
+accurate than typical methods like mean imputation but also more accurate as well as faster than more principled methods like 
+conditional mean imputation.
+
+However, in practice, the training data is often incomplete as well and since we can calculate gradients with CFI we can 
+treat a PC and a LR as one joint and train them jointly on incomplete data:
+
 \[
   p_{\theta, w}(x, y) = p_\theta(x)\, p_w(y \mid x).
 \]
+
 For an incomplete training point we only observe $\xo$ and $y$, so its likelihood integrates over the missing features:
+
 \begin{align*}
   p_{\theta, w}(\xo, y) &= \int p_\theta(\xo, \xm)\, p_w(y \mid \xo, \xm) \, \mathrm{d}\xm \\
   &= p_\theta(\xo)\, \E_{p_\theta(\xm \mid \xo)} \left[ p_w(y \mid x) \right] \\
   &= p_\theta(\xo)\, p_{\theta, w}(y \mid \xo).
 \end{align*}
-The likelihood splits into a density term, the marginal likelihood of $\xo$, which is one pass through the PC, and a label term, the expected prediction, which we compute with CFI.
-The density appears in both terms, so it has to explain the features and also help the classifier to predict the label.
-Unlike in a generative classifier, the LR keeps its own parameters, so the classifier stays discriminative.
+
+The likelihood splits into a density term, the marginal likelihood of $\xo$, which is one pass through the PC,
+and a label term, the expected prediction, which we compute with CFI.
 
 \paragraph{Objective.}
-We minimise the negative log-likelihood with a weight $\lambda$ on the label term and an $L_2$ penalty on $w$, as in scikit-learn with parameter $C$:
-\begin{align}
-  J(\theta, w) = &-\frac{1}{n} \sum_{j=1}^{n} \left( \log p_\theta(x_{o,j}) + \lambda \log p_{\theta, w}(y_j \mid x_{o,j}) \right) \notag \\
-  &+ \frac{1}{2Cn} \lVert w \rVert^2.
-  \label{eq:pclr}
-\end{align}
-For $\lambda = 1$ this is the maximum likelihood estimate of the joint model.
-The density term sums over all observed features, while the label term is a single number per point, so with many features the density term dominates. A larger $\lambda$ trades a little density quality for a better classifier.
-The label term is the binary cross-entropy with $p_j = p_{\theta, w}(y{=}1 \mid x_{o,j})$ from CFI. Since the numerical error can push $p_j$ slightly outside $[0, 1]$, we clamp it to $[\varepsilon, 1 - \varepsilon]$.
+We minimise the negative log-likelihood of an incomplete point $(\xo, y)$:
 
-\paragraph{Gradients.}
-The density term only depends on $\theta$.
-The label term depends on $w$ through $z$, and on $\theta$ through $\phi_{\xm \mid \xo}$, which is smooth in the means, variances and weights of the PC.
-The step $h$ needs no gradient.
-So we get all gradients by automatic differentiation and optimise with Adam on minibatches.
-This is where the deterministic computation helps: with MC we would need gradients through the samples of $\xm$, which is not directly possible, since the choice of the component is discrete.
-We initialise $\theta$ by fitting it on the density term alone and set $w = 0$, so that the expected predictions are meaningful from the start.
-At test time, PCLR predicts with the same expected prediction, so missing features are handled the same way in training and in testing.
+\begin{equation}
+  J(\theta, w) = -\log p_\theta(\xo) - \log p_{\theta, w}(y \mid \xo).
+  \label{eq:pclr}
+\end{equation}
+
+This is the maximum likelihood estimate of the joint model.
+The label term is the binary cross-entropy of the expected prediction $p_{\theta, w}(y{=}1 \mid \xo)$ from CFI.
+
+\paragraph{Training.}
+CFI is deterministic and differentiable, so we minimize $J$ with gradients from automatic differentiation and Adam.
+The gradients are
+
+\begin{align*}
+  \nabla_w J &= -\nabla_w \log p_{\theta, w}(y \mid \xo), \\
+  \nabla_\theta J &= -\nabla_\theta \log p_\theta(\xo) - \nabla_\theta \log p_{\theta, w}(y \mid \xo).
+\end{align*}
+
+The LR is only trained by the label term and stays a discriminative classifier, while the PC is trained by both terms: it has to explain the observed features and also help the LR predict the label.
+This is the difference to a generative classifier, which models the label inside the density and has no parameters of its own for the classifier.
+There, both terms train the same parameters, and the density term usually dominates.
 
 \section{Experiments}
 \label{sec:experiments}
 
-We want to answer two questions: how accurate and fast is CFI compared to MC and imputation, and does PCLR give a better classifier on incomplete data than imputation and generative classification?
-We use data out of the box, from \texttt{make\_classification} and real datasets, and every entry is missing independently (MCAR) with probability 10, 30 or 50\,\%.
-So far the density is a diagonal GMM. % TODO PC as the density
-
 \subsection{Estimation}
 \label{sec:results-estimation}
 
-% TODO: code/estimate.py; figure comparison (KL and time against the number of features) and the frequency plot.
-We fit a GMM and keep $w$ fixed.
-We compare CFI with $K = 40$ to MC with 1000 samples from the conditional, to conditional mean imputation and to mean imputation.
-We measure the KL divergence to the exact expected prediction under the fitted GMM (\cref{app:gmm-reference}) and the time, against the number of features, so that the spread of $z$ grows (\cref{fig:estimators}).
-We also show the error of CFI for 8 to 64 frequencies (\cref{fig:cfi-frequencies}).
-% TODO results
-
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/train/gmm/complete_test_0.25informative_0.25redundant_1.0lambda.pdf}
-  \caption{Training on incomplete points, scored on complete test points, so that only the training differs: log-loss (top) and accuracy (bottom) against the number of features, one column per missing rate. The band is the LR trained on the complete points. 25\,\% of the features are informative and 25\,\% redundant, $\lambda = 1$, GMM with $K = 4$ components.}
+  \includegraphics[width=\textwidth]{figures/train/gmm/complete_test.pdf}
+  \caption{Training on incomplete points, scored on complete test points, so that only the training differs: log-loss (top) and accuracy (bottom) against the number of features, one column per missing rate. The band is the LR trained on the complete points. GMM with $K = 4$ components.}
   \label{fig:training-complete}
 \end{figure*}
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/train/gmm/pclr_variants_incomplete_test_0.25informative_0.25redundant_1.0lambda.pdf}
+  \includegraphics[width=\textwidth]{figures/train/gmm/pclr_variants_incomplete_test.pdf}
   \caption{Variants of PCLR, in the setting of \cref{fig:training-complete}, scored on incomplete test points: the density starting untrained (PCLR), starting from the density fitted on the density term alone (fitted start), and the fitted density kept fixed, so that only $w$ is trained (fixed density).}
   \label{fig:pclr-variants}
 \end{figure*}
 
+% TODO: code/estimate.py; figure comparison (KL and time against the number of features) and the frequency plot.
+We fit a GMM and keep $w$ fixed.
+We compare CFI with $K = 40$ to MC with 1000 samples from the conditional, to conditional mean imputation and to mean imputation.
+We measure the KL divergence to the exact expected prediction under the fitted GMM (\cref{app:gmm-reference}) and the time, 
+against the number of features (\cref{fig:estimators}).
+We also show the error of CFI for 8 to 64 frequencies (\cref{fig:cfi-frequencies}).
+
 \subsection{Training on Incomplete Data}
 \label{sec:results-training}
-
-% TODO: code/train.py, comparison and learning curve; results so far from a GMM that collapses to one component
-% from 64 features on, rerun with the fixed GMM.
-All models are trained on incomplete points.
-We report the log-loss and accuracy on complete and on incomplete test points, against the number of features and the missing rate (\cref{fig:training-complete}), and a learning curve against the number of training points.
-There is no true $w$, since \texttt{make\_classification} is not generated by an LR, so we score the models on held-out labels.
-We also compare three variants of PCLR: the density starting untrained, starting from the fitted density, and the fitted density kept fixed (\cref{fig:pclr-variants}).
-% TODO results
-
-\subsection{Real Data}
-\label{sec:results-real}
-
-We use six datasets from OpenML with continuous features and a binary label: MAGIC (19{,}020 points, 10 features), Phoneme (5{,}404, 5), Spambase (4{,}601, 57), Banknote (1{,}372, 4), QSAR biodegradation (1{,}055, 41) and Pima diabetes (768, 8).
-Every dataset is split 80/20 and standardised on the training points, and every entry is missing independently with probability 10, 30 or 50\,\%, in training and test.
-Every model is trained on the incomplete training points and predicts with its own rule: mean imputation, conditional mean imputation under a GMM with $K = 4$ components, MICE \citep{mice}, the generative classifier (a GMM per class and Bayes' rule), and PCLR.
-The reference \emph{No missing} is the LR trained and tested on the complete points.
-\Cref{tab:real-log-loss-30,tab:real-accuracy-30} show the results for 30\,\% missing, with the mean and standard deviation over 5 seeds, each with a new split and new missing entries. The best model per row (not counting the reference) is bold. The results for 10 and 50\,\% are in \cref{app:results}.
-% TODO results
 
 \begin{table*}[t]
   \centering
@@ -289,6 +254,27 @@ The reference \emph{No missing} is the LR trained and tested on the complete poi
   \label{tab:real-accuracy-30}
   \resizebox{0.9\textwidth}{!}{\input{tables/real_data_accuracy_30.tex}}
 \end{table*}
+
+% TODO: code/train.py, comparison and learning curve; results so far from a GMM that collapses to one component
+% from 64 features on, rerun with the fixed GMM.
+All models are trained on incomplete points.
+We report the log-loss and accuracy on complete and on incomplete test points, against the number of features and the 
+missing rate (\cref{fig:training-complete}), and a learning curve against the number of training points.
+We also compare three variants of PCLR: the density starting untrained, starting from the fitted density, 
+and the fitted density kept fixed (\cref{fig:pclr-variants}).
+
+\subsection{Real Data}
+\label{sec:results-real}
+
+We use six datasets from OpenML with continuous features and a binary label: MAGIC (19{,}020 points, 10 features), 
+Phoneme (5{,}404, 5), Spambase (4{,}601, 57), Banknote (1{,}372, 4), QSAR biodegradation (1{,}055, 41) and Pima diabetes (768, 8).
+Every dataset is split 80/20 and standardised on the training points, and every entry is missing 
+independently with probability 10, 30 or 50\,\%, in training and test.
+The reference \emph{No missing} is the LR trained and tested on the complete points.
+\Cref{tab:real-log-loss-30,tab:real-accuracy-30} show the results for 30\,\% missing, with the mean and standard deviation 
+over 5 seeds, each with a new split and new missing entries. The best model per row (not counting the reference) is bold. 
+The results for 10 and 50\,\% are in \cref{app:results}.
+
 
 \section{Related Work}
 \label{sec:related-work}

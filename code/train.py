@@ -15,7 +15,7 @@ import torch
 
 from pclr import PCLR
 from utils.baselines import CompleteData, ConditionalMeanImputation, MeanImputation
-from utils.data import load_data
+from utils.data import INFORMATIVE, REDUNDANT, load_data
 from utils.experiments import compare_learning_curve, compare_training, fit_density, print_training_scores, training_scores
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -24,21 +24,17 @@ from utils.experiments import compare_learning_curve, compare_training, fit_dens
 MODEL = "gmm"
 K     = 4
 
-# the numbers of features (powers of 2, evenly spaced on a log axis), INFORMATIVE of them
-# informative, REDUNDANT linear combinations of those (so that the observed features say
-# something about the missing ones) and the others noise, the probabilities of every entry
-# to be missing, the seed of the hidden features, and whether the features are standardized
+# the numbers of features (powers of 2, evenly spaced on a log axis; the split into
+# informative, redundant and noise features, INFORMATIVE and REDUNDANT, is that of every
+# experiment, in utils/data.py), the probabilities of every entry to be missing, the seed of
+# the hidden features, and whether the features are standardized
 FEATURES      = [2 ** k for k in range(2, 9)]
-INFORMATIVE   = 0.25
-REDUNDANT     = 0.25
 MISSING_RATES = [0.1, 0.3, 0.5]
 SEED          = 0
-NORM          = False
+NORM          = True
 
-# pclr: cfi's frequencies, the weight of the label term against the density term (1 is
-# plain maximum likelihood of the joint model), and the iterations of l-bfgs
+# pclr: cfi's frequencies and the iterations of l-bfgs
 N_FREQ   = 64
-LAMBDA   = 1.0
 MAX_ITER = 1000
 
 # the learning curve: its number of features and missing rate, the numbers of training
@@ -49,10 +45,9 @@ CURVE_RATE     = 0.3
 N_TRAINS       = [2 ** k for k in range(8, 15)]
 CURVE_TEST     = 5000
 
-# the end of the names of the figures and the json (the settings, every value with its
-# name), and of the cached densities
-NORM_SUFFIX = "_norm" if NORM else ""
-SUFFIX      = f"_{INFORMATIVE}informative_{REDUNDANT}redundant_{LAMBDA}lambda{NORM_SUFFIX}"
+# the end of the names of the figures, the json and the cached densities: standardized
+# features are the default and get no suffix, raw ones _raw
+NORM_SUFFIX = "" if NORM else "_raw"
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -65,15 +60,15 @@ MODELS = {
     "Complete data":    CompleteData(),
     "Mean imputation":  MeanImputation(),
     "Conditional mean imputation": ConditionalMeanImputation(),
-    "PCLR":             PCLR(n_freq=N_FREQ, lam=LAMBDA, max_iter=MAX_ITER),
+    "PCLR":             PCLR(n_freq=N_FREQ, max_iter=MAX_ITER),
 }
 
 # the variants of pclr: the density starting untrained (the pclr above), starting from the
 # fitted density, and the fitted density kept fixed (only w trained)
 PCLR_VARIANTS = {
-    "PCLR":               PCLR(n_freq=N_FREQ, lam=LAMBDA, max_iter=MAX_ITER),
-    "PCLR fitted start":  PCLR(n_freq=N_FREQ, lam=LAMBDA, max_iter=MAX_ITER, start="fitted"),
-    "PCLR fixed density": PCLR(n_freq=N_FREQ, lam=LAMBDA, max_iter=MAX_ITER, train_density=False),
+    "PCLR":               PCLR(n_freq=N_FREQ, max_iter=MAX_ITER),
+    "PCLR fitted start":  PCLR(n_freq=N_FREQ, max_iter=MAX_ITER, start="fitted"),
+    "PCLR fixed density": PCLR(n_freq=N_FREQ, max_iter=MAX_ITER, train_density=False),
 }
 
 # ── experiments ───────────────────────────────────────────────────────────────
@@ -106,7 +101,7 @@ def comparison(models, prefix):
                 scores[setting][name] = training_scores(model.w.detach(), model.predict(x_eval), x_test, y_test)
         print_training_scores(n_features, missing_rate, scores[setting])
 
-    compare_training(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", prefix, SUFFIX)
+    compare_training(scores, FEATURES, MISSING_RATES, f"train/{MODEL}", prefix, NORM_SUFFIX)
 
 
 # the learning curve: the largest dataset once, every number of training points its first
@@ -142,7 +137,7 @@ def learning_curve(models, prefix):
             curve[name]["accuracy"].append(score["accuracy_incomplete"])
         print(f"    {n_train:>7} points   " + "   ".join(f"{name} {score['log_loss_incomplete']:.4f}" for name, score in scores.items()))
 
-    compare_learning_curve(N_TRAINS, curve, CURVE_FEATURES, CURVE_RATE, f"train/{MODEL}", prefix, SUFFIX)
+    compare_learning_curve(N_TRAINS, curve, CURVE_FEATURES, CURVE_RATE, f"train/{MODEL}", prefix, NORM_SUFFIX)
 
 # ── run ───────────────────────────────────────────────────────────────────────
 
